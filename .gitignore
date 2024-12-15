@@ -1,0 +1,20 @@
+# IDEs
+.vscode
+.idea
+
+# Local .terraform directories
+.terraform*
+backend.tf 
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# tfvars
+*.tfvars
+
+scripts
+
+charts/
+platform/clickhouse/docker/clickhouse
+__pycache__/

@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  master-insert:
+    image: locustio/locust
+    ports:
+     - "8089:8089"
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --master -H http://host.docker.internal:3000
+    extra_hosts:
+        host.docker.internal: host-gateway
+  
+  worker-insert:
+    image: locustio/locust
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --worker --master-host master-insert
+    depends_on:
+      - "master-insert"
+    extra_hosts:
+        host.docker.internal: host-gateway
