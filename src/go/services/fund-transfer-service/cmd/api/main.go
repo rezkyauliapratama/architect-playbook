@@ -57,6 +57,7 @@ func main() {
 		accountClient,
 		transactionClient,
 		ledgerClient,
+		cfg,
 		cfg.MaxWorkers,
 	)
 

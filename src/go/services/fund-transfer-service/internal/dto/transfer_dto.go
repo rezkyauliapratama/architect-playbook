@@ -14,6 +14,18 @@ type CreateTransferRequest struct {
 	Amount                   float64 `json:"amount"`
 	Currency                 string  `json:"currency"`
 	Description              string  `json:"description"`
+	// Dynamic ledger fields
+	FeeType              string   `json:"feeType,omitempty"`
+	CustomFee            *float64 `json:"customFee,omitempty"`
+	DebitAccountCode     string   `json:"debitAccountCode,omitempty"`
+	CreditAccountCode    string   `json:"creditAccountCode,omitempty"`
+	FeeDebitAccountCode  string   `json:"feeDebitAccountCode,omitempty"`
+	FeeCreditAccountCode string   `json:"feeCreditAccountCode,omitempty"`
+	DebitDescription     string   `json:"debitDescription,omitempty"`
+	CreditDescription    string   `json:"creditDescription,omitempty"`
+	FeeDebitDescription  string   `json:"feeDebitDescription,omitempty"`
+	FeeCreditDescription string   `json:"feeCreditDescription,omitempty"`
+	ReferenceType        string   `json:"referenceType,omitempty"`
 }
 
 func (r *CreateTransferRequest) Validate() error {
@@ -62,6 +74,20 @@ type CreateBulkTransferRequest struct {
 	Transfers       []BulkTransferItem `json:"transfers"`
 	Currency        string             `json:"currency"`
 	BatchReference  string             `json:"batchReference"`
+	// Ledger account code overrides
+	DebitAccountCode     string `json:"debitAccountCode,omitempty"`
+	CreditAccountCode    string `json:"creditAccountCode,omitempty"`
+	FeeDebitAccountCode  string `json:"feeDebitAccountCode,omitempty"`
+	FeeCreditAccountCode string `json:"feeCreditAccountCode,omitempty"`
+
+	// Description overrides
+	DebitDescription     string `json:"debitDescription,omitempty"`
+	CreditDescription    string `json:"creditDescription,omitempty"`
+	FeeDebitDescription  string `json:"feeDebitDescription,omitempty"`
+	FeeCreditDescription string `json:"feeCreditDescription,omitempty"`
+
+	// Other fields
+	ReferenceType string `json:"referenceType,omitempty"`
 }
 
 type BulkTransferItem struct {
