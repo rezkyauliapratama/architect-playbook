@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"fund-transfer-service/internal/client"
-	"fund-transfer-service/internal/domain"
-	"fund-transfer-service/internal/dto"
-	"fund-transfer-service/internal/repository"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/client"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/domain"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/dto"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/repository"
 
 	"github.com/google/uuid"
 )

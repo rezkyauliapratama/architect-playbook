@@ -2,8 +2,8 @@
 package handler
 
 import (
-	"fund-transfer-service/internal/dto"
-	"fund-transfer-service/internal/service"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/dto"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/service"
 
 	"github.com/gofiber/fiber/v2"
 )

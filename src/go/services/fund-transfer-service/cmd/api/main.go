@@ -11,16 +11,16 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 
-	"fund-transfer-service/internal/client"
-	"fund-transfer-service/internal/config"
-	"fund-transfer-service/internal/handler"
-	"fund-transfer-service/internal/repository/postgres"
-	"fund-transfer-service/internal/service"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/client"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/config"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/handler"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/repository/postgres"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/service"
 )
 
 func main() {
@@ -82,7 +82,7 @@ func main() {
 	})
 
 	// Add middlewares
-	app.Use(logger.New())
+	app.Use(logger.FiberMiddleware())
 	app.Use(recover.New())
 	app.Use(cors.New())
 	app.Use(compress.New()) // Compress responses for better performance

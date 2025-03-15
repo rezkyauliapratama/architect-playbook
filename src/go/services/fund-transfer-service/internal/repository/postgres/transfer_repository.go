@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"fund-transfer-service/internal/domain"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"

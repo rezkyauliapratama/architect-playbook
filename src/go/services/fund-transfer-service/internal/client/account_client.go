@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"fund-transfer-service/internal/config"
-	"fund-transfer-service/internal/dto"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/config"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/fund-transfer-service/internal/dto"
 
 	"github.com/go-resty/resty/v2"
 )
