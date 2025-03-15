@@ -1,0 +1,21 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_multi_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_MULTIPLE_DATABASES: fund_transfer
+    volumes:
+      - ./init-multiple-databases.sh:/docker-entrypoint-initdb.d/01-init-multiple-databases.sh
+      - ./db-specific-scripts.sh:/docker-entrypoint-initdb.d/02-db-specific-scripts.sh
+      - ../../src/go/services/fund-transfer-service/migrations/01_initial_tables.sql:/docker-entrypoint-initdb.d/init-db-fund-transfer.sql
+      - postgresql_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  postgresql_data:
