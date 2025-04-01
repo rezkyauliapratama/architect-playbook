@@ -81,7 +81,7 @@ func Get() *Logger {
 }
 
 // With adds key-value pairs to the logger context
-func (l *Logger) With(key string, value interface{}) *Logger {
+func (l *Logger) WithField(key string, value interface{}) *Logger {
 	return &Logger{zl: l.zl.With().Interface(key, value).Logger()}
 }
 

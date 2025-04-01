@@ -4,6 +4,7 @@ go 1.21.3
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.6
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/rs/zerolog v1.33.0
 )
 
