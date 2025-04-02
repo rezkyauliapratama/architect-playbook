@@ -11,6 +11,8 @@ type CreateNotificationRequest struct {
 	Type        string                 `json:"type" validate:"required,oneof=EMAIL SMS PUSH"`
 	Title       string                 `json:"title" validate:"required"`
 	Message     string                 `json:"message" validate:"required"`
+	Channel     string                 `json:"channel" validate:"required"`
+	App         string                 `json:"app" validate:"required"`
 	Data        map[string]interface{} `json:"data,omitempty"`
 }
 
@@ -21,6 +23,8 @@ type NotificationResponse struct {
 	Type           string                 `json:"type"`
 	Title          string                 `json:"title"`
 	Message        string                 `json:"message"`
+	Channel        string                 `json:"channel"`
+	App            string                 `json:"app"`
 	Status         string                 `json:"status"`
 	CreatedAt      time.Time              `json:"createdAt"`
 	SentAt         *time.Time             `json:"sentAt,omitempty"`
@@ -30,6 +34,8 @@ type NotificationResponse struct {
 // GetNotificationsRequest represents a request to get notifications
 type GetNotificationsRequest struct {
 	RecipientID string `json:"recipientId" validate:"required"`
+	Channel     string `json:"channel,omitempty"`
+	App         string `json:"app"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
 }
@@ -40,13 +46,6 @@ type GetNotificationsResponse struct {
 	Total         int                    `json:"total"`
 	Limit         int                    `json:"limit"`
 	Offset        int                    `json:"offset"`
-}
-
-// SendEmailRequest represents a request to send an email
-type SendEmailRequest struct {
-	To      string `json:"to" validate:"required,email"`
-	Subject string `json:"subject" validate:"required"`
-	Body    string `json:"body" validate:"required"`
 }
 
 // SendEmailResponse represents the response from the email service
@@ -79,4 +78,14 @@ type SendPushRequest struct {
 type SendPushResponse struct {
 	MessageID string `json:"messageId"`
 	Status    string `json:"status"`
+}
+
+// SendEmailRequest represents a request to send an email
+type SendEmailRequest struct {
+	From        string   `json:"from,omitempty"`
+	To          string   `json:"to" validate:"required,email"`
+	Subject     string   `json:"subject" validate:"required"`
+	HtmlBody    string   `json:"htmlBody" validate:"required"`
+	PlainBody   string   `json:"plainBody,omitempty"`
+	Attachments []string `json:"attachments,omitempty"`
 }

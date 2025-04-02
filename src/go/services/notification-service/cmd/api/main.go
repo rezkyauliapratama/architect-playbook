@@ -55,8 +55,9 @@ func main() {
 
 	// Initialize dependencies
 	apiClient := client.NewAPIClient(cfg)
+	emailClient := client.NewEmailClient(cfg)
 	notificationRepo := postgres.NewNotificationRepository(db)
-	notificationService := service.NewNotificationService(notificationRepo, apiClient, cfg)
+	notificationService := service.NewNotificationService(notificationRepo, apiClient, emailClient, cfg)
 	notificationHandler := handler.NewNotificationHandler(notificationService)
 
 	// Initialize Fiber app with performance optimizations
@@ -107,7 +108,7 @@ func main() {
 		}
 	}()
 
-	log.Info(fmt.Sprintf("Server started on port %s", cfg.ServerPort))
+	log.Info(fmt.Sprint("Server started on port %s", cfg.ServerPort))
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

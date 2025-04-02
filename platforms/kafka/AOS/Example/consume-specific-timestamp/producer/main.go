@@ -34,7 +34,7 @@ func main() {
 	for {
 		// Create the message payload with ISO 8601 timestamp
 		payload := MessagePayload{
-			Message:   fmt.Sprintf("This is a single message : %s", time.Now().Format(time.RFC3339)),
+			Message:   fmt.Sprint("This is a single message : %s", time.Now().Format(time.RFC3339)),
 			Timestamp: time.Now().Format(time.RFC3339), // ISO 8601 timestamp
 		}
 

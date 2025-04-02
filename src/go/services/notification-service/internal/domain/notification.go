@@ -7,6 +7,7 @@ import (
 
 type NotificationType string
 type NotificationStatus string
+type NotificationChannel string
 
 const (
 	NotificationTypeEmail NotificationType = "EMAIL"
@@ -16,6 +17,15 @@ const (
 	NotificationStatusPending NotificationStatus = "PENDING"
 	NotificationStatusSent    NotificationStatus = "SENT"
 	NotificationStatusFailed  NotificationStatus = "FAILED"
+
+	// Notification channels - which financial operation triggered it
+	ChannelDeposit    NotificationChannel = "DEPOSIT"
+	ChannelWithdrawal NotificationChannel = "WITHDRAWAL"
+	ChannelBiFast     NotificationChannel = "BI_FAST"
+	ChannelRTOL       NotificationChannel = "RTOL"
+	ChannelIntrabank  NotificationChannel = "INTRABANK"
+	ChannelSystem     NotificationChannel = "SYSTEM"
+	ChannelUnknown    NotificationChannel = "UNKNOWN"
 )
 
 type Notification struct {
@@ -26,8 +36,10 @@ type Notification struct {
 	Title          string                 `json:"title" db:"title"`
 	Message        string                 `json:"message" db:"message"`
 	Status         NotificationStatus     `json:"status" db:"status"`
+	Channel        NotificationChannel    `json:"channel" db:"channel"`
+	App            string                 `json:"app" db:"app"`
 	CreatedAt      time.Time              `json:"createdAt" db:"created_at"`
 	UpdatedAt      time.Time              `json:"updatedAt" db:"updated_at"`
 	SentAt         *time.Time             `json:"sentAt,omitempty" db:"sent_at"`
-	Data           map[string]interface{} `json:"data,omitempty" db:"-"` // Additional data for push notifications
+	Data           map[string]interface{} `json:"data,omitempty" db:"-"`
 }

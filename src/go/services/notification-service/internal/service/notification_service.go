@@ -16,16 +16,18 @@ import (
 )
 
 type NotificationService struct {
-	repo   repository.NotificationRepository
-	client client.APIClient
-	config *config.Config
+	repo       repository.NotificationRepository
+	apiClient  client.APIClient
+	smtpClient client.EmailClient
+	config     *config.Config
 }
 
-func NewNotificationService(repo repository.NotificationRepository, client client.APIClient, config *config.Config) *NotificationService {
+func NewNotificationService(repo repository.NotificationRepository, apiClient client.APIClient, smtpClient client.EmailClient, config *config.Config) *NotificationService {
 	return &NotificationService{
-		repo:   repo,
-		client: client,
-		config: config,
+		repo:       repo,
+		apiClient:  apiClient,
+		smtpClient: smtpClient,
+		config:     config,
 	}
 }
 
@@ -37,13 +39,26 @@ func (s *NotificationService) CreateNotification(ctx context.Context, req *dto.C
 
 	now := time.Now()
 
-	// Create notification
+	// Set default values if not provided
+	channel := req.Channel
+	if channel == "" {
+		channel = string(domain.ChannelUnknown)
+	}
+
+	app := req.App
+	if app == "" {
+		app = "Unknown"
+	}
+
+	// Create notification with channel and app information
 	notification := &domain.Notification{
 		NotificationID: notificationID,
 		RecipientID:    req.RecipientID,
 		Type:           domain.NotificationType(req.Type),
 		Title:          req.Title,
 		Message:        req.Message,
+		Channel:        domain.NotificationChannel(channel),
+		App:            app,
 		Status:         domain.NotificationStatusPending,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -59,9 +74,11 @@ func (s *NotificationService) CreateNotification(ctx context.Context, req *dto.C
 	// Process notification asynchronously for better performance
 	go s.processNotification(notification)
 
-	log.Info(fmt.Sprintf("Notification created successfully", map[string]interface{}{
+	log.Info(fmt.Sprint("Notification created successfully", map[string]interface{}{
 		"notificationId": notification.NotificationID,
 		"type":           notification.Type,
+		"channel":        notification.Channel,
+		"app":            notification.App,
 	}))
 
 	return &dto.NotificationResponse{
@@ -70,6 +87,8 @@ func (s *NotificationService) CreateNotification(ctx context.Context, req *dto.C
 		Type:           string(notification.Type),
 		Title:          notification.Title,
 		Message:        notification.Message,
+		Channel:        string(notification.Channel),
+		App:            notification.App,
 		Status:         string(notification.Status),
 		CreatedAt:      notification.CreatedAt,
 		Data:           notification.Data,
@@ -90,7 +109,8 @@ func (s *NotificationService) GetNotifications(ctx context.Context, req *dto.Get
 		offset = 0
 	}
 
-	notifications, total, err := s.repo.GetByRecipientID(ctx, req.RecipientID, limit, offset)
+	// Pass channel and app filters to repository
+	notifications, total, err := s.repo.GetByRecipientID(ctx, req.RecipientID, req.Channel, req.App, limit, offset)
 	if err != nil {
 		log.Error("Failed to get notifications", err)
 		return nil, fmt.Errorf("failed to get notifications: %w", err)
@@ -104,6 +124,8 @@ func (s *NotificationService) GetNotifications(ctx context.Context, req *dto.Get
 			Type:           string(notification.Type),
 			Title:          notification.Title,
 			Message:        notification.Message,
+			Channel:        string(notification.Channel),
+			App:            notification.App,
 			Status:         string(notification.Status),
 			CreatedAt:      notification.CreatedAt,
 			SentAt:         notification.SentAt,
@@ -138,7 +160,7 @@ func (s *NotificationService) ProcessPendingNotifications() {
 		return
 	}
 
-	log.Info(fmt.Sprintf("Processing pending notifications", map[string]interface{}{
+	log.Info(fmt.Sprint("Processing pending notifications", map[string]interface{}{
 		"count": len(notifications),
 	}))
 
@@ -184,24 +206,58 @@ func (s *NotificationService) processNotification(notification *domain.Notificat
 }
 
 func (s *NotificationService) sendEmail(ctx context.Context, notification *domain.Notification) error {
-	log := logger.Get().WithField("method", "NotificationService.sendEmail")
+	log := logger.Get().WithFields(map[string]interface{}{
+		"method":  "NotificationService.sendEmail",
+		"channel": notification.Channel,
+		"app":     notification.App,
+	})
 
-	// In a real implementation, you would get the email address from a user service
-	// For this example, we'll use the recipientID as the email address
+	// Create subject with app and channel context
+	subject := fmt.Sprintf("[%s-%s] %s", notification.App, notification.Channel, notification.Title)
+
+	// Create HTML body with app and channel information
+	htmlBody := fmt.Sprintf(`
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+                <h2>%s</h2>
+                <div style="margin-top: 10px; font-size: 14px; color: #6c757d;">
+                    <span style="display: inline-block; background-color: #e2e3e5; border-radius: 4px; padding: 5px 10px; margin-right: 10px;">
+                        Channel: %s
+                    </span>
+                    <span style="display: inline-block; background-color: #e2e3e5; border-radius: 4px; padding: 5px 10px;">
+                        App: %s
+                    </span>
+                </div>
+            </div>
+            <div style="padding: 20px;">
+                %s
+            </div>
+            <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #6c757d;">
+                <p>This is an automated message from the financial system. Please do not reply.</p>
+                <p>Sent on %s</p>
+            </div>
+        </div>
+    `, notification.Title, notification.Channel, notification.App, notification.Message, time.Now().Format("Monday, January 2, 2006 at 3:04 PM"))
 
 	req := &dto.SendEmailRequest{
-		To:      notification.RecipientID,
-		Subject: notification.Title,
-		Body:    notification.Message,
+		To:        notification.RecipientID,
+		Subject:   subject,
+		HtmlBody:  htmlBody,
+		PlainBody: notification.Message,
 	}
 
-	_, err := s.client.SendEmail(ctx, req)
+	err := s.smtpClient.SendEmail(ctx, req)
 	if err != nil {
 		log.Error("Failed to send email", err)
 		return err
 	}
 
-	log.Info("Email sent successfully")
+	log.Info(fmt.Sprint("Email sent successfully to MailCatcher", map[string]interface{}{
+		"recipient": notification.RecipientID,
+		"app":       notification.App,
+		"channel":   notification.Channel,
+	}))
+
 	return nil
 }
 
@@ -216,7 +272,7 @@ func (s *NotificationService) sendSMS(ctx context.Context, notification *domain.
 		Message: notification.Message,
 	}
 
-	_, err := s.client.SendSMS(ctx, req)
+	_, err := s.apiClient.SendSMS(ctx, req)
 	if err != nil {
 		log.Error("Failed to send SMS", err)
 		return err
@@ -239,7 +295,7 @@ func (s *NotificationService) sendPushNotification(ctx context.Context, notifica
 		Data:        notification.Data,
 	}
 
-	_, err := s.client.SendPush(ctx, req)
+	_, err := s.apiClient.SendPush(ctx, req)
 	if err != nil {
 		log.Error("Failed to send push notification", err)
 		return err

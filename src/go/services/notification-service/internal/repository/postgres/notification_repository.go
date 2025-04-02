@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -28,9 +29,9 @@ func (r *notificationRepository) Create(ctx context.Context, notification *domai
 	query := `
         INSERT INTO notifications (
             id, notification_id, recipient_id, type, title, message,
-            status, created_at, updated_at
+            status, channel, app, created_at, updated_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
         )
     `
 
@@ -38,7 +39,8 @@ func (r *notificationRepository) Create(ctx context.Context, notification *domai
 		ctx, query,
 		notification.ID, notification.NotificationID, notification.RecipientID,
 		notification.Type, notification.Title, notification.Message,
-		notification.Status, notification.CreatedAt, notification.UpdatedAt,
+		notification.Status, notification.Channel, notification.App,
+		notification.CreatedAt, notification.UpdatedAt,
 	)
 
 	if err != nil {
@@ -46,31 +48,57 @@ func (r *notificationRepository) Create(ctx context.Context, notification *domai
 		return err
 	}
 
-	log.Info("Notification created successfully")
+	log.Info(fmt.Sprint("Notification created successfully", map[string]interface{}{
+		"channel": notification.Channel,
+		"app":     notification.App,
+	}))
 	return nil
 }
 
-func (r *notificationRepository) GetByRecipientID(ctx context.Context, recipientID string, limit, offset int) ([]*domain.Notification, int, error) {
+func (r *notificationRepository) GetByRecipientID(ctx context.Context, recipientID string, channel string, app string, limit, offset int) ([]*domain.Notification, int, error) {
 	log := logger.Get().WithField("method", "notificationRepository.GetByRecipientID")
 
-	query := `
+	var query string
+	var args []interface{}
+	var whereClause string
+
+	// Build dynamic query with proper parameter indexing
+	whereClause = "recipient_id = $1"
+	args = append(args, recipientID)
+	paramIndex := 2
+
+	if channel != "" {
+		whereClause += fmt.Sprintf(" AND channel = $%d", paramIndex)
+		args = append(args, channel)
+		paramIndex++
+	}
+
+	if app != "" {
+		whereClause += fmt.Sprintf(" AND app = $%d", paramIndex)
+		args = append(args, app)
+		paramIndex++
+	}
+
+	query = fmt.Sprintf(`
         SELECT * FROM notifications 
-        WHERE recipient_id = $1 
+        WHERE %s
         ORDER BY created_at DESC 
-        LIMIT $2 OFFSET $3
-    `
+        LIMIT $%d OFFSET $%d
+    `, whereClause, paramIndex, paramIndex+1)
+
+	args = append(args, limit, offset)
 
 	var notifications []*domain.Notification
-	err := r.db.SelectContext(ctx, &notifications, query, recipientID, limit, offset)
+	err := r.db.SelectContext(ctx, &notifications, query, args...)
 	if err != nil {
 		log.Error("Failed to get notifications", err)
 		return nil, 0, err
 	}
 
-	// Get total count
+	// Get total count with same filters
 	var total int
-	countQuery := `SELECT COUNT(*) FROM notifications WHERE recipient_id = $1`
-	err = r.db.GetContext(ctx, &total, countQuery, recipientID)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM notifications WHERE %s", whereClause)
+	err = r.db.GetContext(ctx, &total, countQuery, args[:paramIndex-1]...)
 	if err != nil {
 		log.Error("Failed to get total count", err)
 		return notifications, 0, err

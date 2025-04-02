@@ -82,5 +82,5 @@ func main() {
 func generateTransactionalID() string {
 	hostname, _ := os.Hostname()
 	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s-%d", hostname, timestamp)
+	return fmt.Sprint("%s-%d", hostname, timestamp)
 }

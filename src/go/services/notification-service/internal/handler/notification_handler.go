@@ -28,7 +28,7 @@ func (h *NotificationHandler) CreateNotification(c *fiber.Ctx) error {
 
 	var req dto.CreateNotificationRequest
 	if err := c.BodyParser(&req); err != nil {
-		log.Warn(fmt.Sprintf("Invalid request body", err))
+		log.Warn(fmt.Sprint("Invalid request body", err))
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request body",
 		})
@@ -42,7 +42,7 @@ func (h *NotificationHandler) CreateNotification(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Info(fmt.Sprintf("Notification created", map[string]interface{}{
+	log.Info(fmt.Sprint("Notification created", map[string]interface{}{
 		"latency": time.Since(start).Milliseconds(),
 	}))
 
@@ -54,6 +54,10 @@ func (h *NotificationHandler) GetNotifications(c *fiber.Ctx) error {
 	log := logger.Get().WithField("handler", "GetNotifications").WithField("recipientId", recipientID)
 	start := time.Now()
 
+	// Get channel and app from query parameters
+	channel := c.Query("channel", "")
+	app := c.Query("app", "")
+
 	limitStr := c.Query("limit", "10")
 	offsetStr := c.Query("offset", "0")
 
@@ -62,6 +66,8 @@ func (h *NotificationHandler) GetNotifications(c *fiber.Ctx) error {
 
 	req := &dto.GetNotificationsRequest{
 		RecipientID: recipientID,
+		Channel:     channel,
+		App:         app,
 		Limit:       limit,
 		Offset:      offset,
 	}
@@ -74,8 +80,10 @@ func (h *NotificationHandler) GetNotifications(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Info(fmt.Sprintf("Notifications retrieved", map[string]interface{}{
+	log.Info(fmt.Sprint("Notifications retrieved", map[string]interface{}{
 		"count":   len(response.Notifications),
+		"channel": channel,
+		"app":     app,
 		"latency": time.Since(start).Milliseconds(),
 	}))
 

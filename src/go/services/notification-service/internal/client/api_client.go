@@ -13,7 +13,6 @@ import (
 )
 
 type APIClient interface {
-	SendEmail(ctx context.Context, req *dto.SendEmailRequest) (*dto.SendEmailResponse, error)
 	SendSMS(ctx context.Context, req *dto.SendSMSRequest) (*dto.SendSMSResponse, error)
 	SendPush(ctx context.Context, req *dto.SendPushRequest) (*dto.SendPushResponse, error)
 }
@@ -39,30 +38,6 @@ func NewAPIClient(config *config.Config) APIClient {
 	}
 }
 
-func (c *apiClient) SendEmail(ctx context.Context, req *dto.SendEmailRequest) (*dto.SendEmailResponse, error) {
-	log := logger.Get().WithField("method", "apiClient.SendEmail")
-
-	var response dto.SendEmailResponse
-
-	resp, err := c.client.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&response).
-		Post(fmt.Sprintf("%s/api/email", c.config.EmailServiceURL))
-
-	if err != nil {
-		log.Error("Failed to call email service", err)
-		return nil, err
-	}
-
-	if !resp.IsSuccess() {
-		log.Error("Email service error", fmt.Errorf("status: %d", resp.StatusCode()))
-		return nil, fmt.Errorf("email service error: %d", resp.StatusCode())
-	}
-
-	return &response, nil
-}
-
 func (c *apiClient) SendSMS(ctx context.Context, req *dto.SendSMSRequest) (*dto.SendSMSResponse, error) {
 	log := logger.Get().WithField("method", "apiClient.SendSMS")
 
@@ -72,7 +47,7 @@ func (c *apiClient) SendSMS(ctx context.Context, req *dto.SendSMSRequest) (*dto.
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post(fmt.Sprintf("%s/api/sms", c.config.SMSServiceURL))
+		Post(fmt.Sprint("%s/api/sms", c.config.SMSServiceURL))
 
 	if err != nil {
 		log.Error("Failed to call SMS service", err)
@@ -96,7 +71,7 @@ func (c *apiClient) SendPush(ctx context.Context, req *dto.SendPushRequest) (*dt
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post(fmt.Sprintf("%s/api/push", c.config.PushServiceURL))
+		Post(fmt.Sprint("%s/api/push", c.config.PushServiceURL))
 
 	if err != nil {
 		log.Error("Failed to call push notification service", err)

@@ -34,8 +34,8 @@ func PartitionCalculator(key string, partitionCount int) int {
 // generateRandomTransaction creates a random transaction with a unique transaction ID and user ID
 func generateRandomTransaction() Transaction {
 	// Generate a random transaction ID and user ID
-	transactionID := fmt.Sprintf("trx-%d", rand.Intn(1000000))
-	userID := fmt.Sprintf("user-%d", rand.Intn(2)) // Using 2 unique users for this example
+	transactionID := fmt.Sprint("trx-%d", rand.Intn(1000000))
+	userID := fmt.Sprint("user-%d", rand.Intn(2)) // Using 2 unique users for this example
 
 	// Random amount between -100 and 100 (positive for credit, negative for debit)
 	amount := float64(rand.Intn(200)) - 100
