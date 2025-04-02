@@ -2,5 +2,6 @@ go 1.21.3
 
 use (
 	./src/go/libs
+	./src/go/services/mock-bifast-service
 	./src/go/services/notification-service
 )
