@@ -3,20 +3,20 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
-	"consumer/config"
+	"consumer/db"
+	"consumer/repository"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Order matches the producer schema
+// Order matches producer schema
 type Order struct {
 	OrderID        string    `json:"order_id"`
 	UserID         string    `json:"user_id"`
@@ -26,290 +26,174 @@ type Order struct {
 	IdempotencyKey string    `json:"idempotency_key"`
 }
 
-// InventoryService manages stock and processes orders
+// InventoryService with pgxpool
 type InventoryService struct {
-	consumer  *kafka.Consumer
-	inventory map[string]int
-	processed map[string]bool // Idempotency tracking
-	mu        sync.RWMutex
+	consumer *kafka.Consumer
+	repo     *repository.InventoryRepository
+	pool     *pgxpool.Pool
 
-	// Metrics
 	messagesProcessed int64
 	messagesSkipped   int64
 	messagesFailed    int64
 }
 
-// NewInventoryService creates a new service instance
-func NewInventoryService(brokers, groupID, instanceID string, topics []string) (*InventoryService, error) {
-	// Create consumer with production-grade config
-	consumer, err := kafka.NewConsumer(config.ConsumerConfig(brokers, groupID, instanceID))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create consumer: %w", err)
+func NewInventoryService(
+	brokers, groupID, instanceID string,
+	topics []string,
+	pool *pgxpool.Pool,
+) (*InventoryService, error) {
+	config := &kafka.ConfigMap{
+		"bootstrap.servers":             brokers,
+		"group.id":                      groupID,
+		"group.instance.id":             instanceID,
+		"enable.auto.commit":            false,
+		"isolation.level":               "read_committed",
+		"auto.offset.reset":             "earliest",
+		"fetch.min.bytes":               1048576,
+		"fetch.wait.max.ms":             100,
+		"session.timeout.ms":            30000,
+		"heartbeat.interval.ms":         3000,
+		"max.poll.interval.ms":          300000,
+		"partition.assignment.strategy": "range",
 	}
 
-	// Subscribe to topics
+	consumer, err := kafka.NewConsumer(config)
+	if err != nil {
+		return nil, err
+	}
+
 	err = consumer.SubscribeTopics(topics, nil)
 	if err != nil {
 		consumer.Close()
-		return nil, fmt.Errorf("failed to subscribe: %w", err)
+		return nil, err
 	}
 
-	log.Printf("✅ Consumer created successfully")
-	log.Printf("📋 Configuration:")
-	log.Printf("   - Brokers: %s", brokers)
-	log.Printf("   - Group ID: %s", groupID)
-	log.Printf("   - Instance ID: %s", instanceID)
-	log.Printf("   - Topics: %v", topics)
-	log.Printf("   - Auto-commit: disabled (manual)")
-	log.Printf("   - Isolation: read_committed")
-
-	// Initialize inventory (demo data)
-	inventory := map[string]int{
-		"prd_laptop_001":   100,
-		"prd_mouse_002":    500,
-		"prd_keyboard_003": 200,
-		"prd_monitor_004":  50,
-	}
-
-	log.Printf("📦 Initial inventory:")
-	for productID, qty := range inventory {
-		log.Printf("   - %s: %d units", productID, qty)
-	}
+	log.Printf("✅ Consumer created with pgx backend")
 
 	return &InventoryService{
-		consumer:  consumer,
-		inventory: inventory,
-		processed: make(map[string]bool),
+		consumer: consumer,
+		repo:     repository.NewInventoryRepository(pool),
+		pool:     pool,
 	}, nil
 }
 
-// ProcessOrders is the main consumer loop
 func (s *InventoryService) ProcessOrders(ctx context.Context) error {
-	log.Println("🚀 Inventory Service started, waiting for orders...")
+	log.Println("🚀 Inventory Service started (pgx backend)")
 
-	// Metrics reporting ticker
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("⏹  Shutting down consumer...")
 			return s.shutdown()
-
 		case <-ticker.C:
-			// Report metrics every 30 seconds
-			s.reportMetrics()
-
+			s.reportMetrics(ctx)
 		default:
-			// Poll for messages with 1 second timeout
-			// IMPORTANT: Must poll regularly to send heartbeats
-			ev := s.consumer.Poll(1000) // 1 second timeout
+			ev := s.consumer.Poll(1000)
 			if ev == nil {
-				continue // Timeout, continue polling
+				continue
 			}
 
 			switch e := ev.(type) {
 			case *kafka.Message:
-				// Process message
-				if err := s.processMessage(e); err != nil {
-					log.Printf("❌ Failed to process message: %v", err)
+				if err := s.processMessage(ctx, e); err != nil {
+					log.Printf("❌ Failed: %v", err)
 					s.messagesFailed++
-					// PRODUCTION: Send to Dead Letter Queue (DLQ)
 					continue
 				}
-
-				// CRITICAL: Commit offset only after successful processing
-				_, err := s.consumer.CommitMessage(e)
-				if err != nil {
-					log.Printf("⚠️  Failed to commit offset: %v", err)
-					// Message will be reprocessed (idempotency ensures safety)
-				}
-
+				s.consumer.CommitMessage(e)
 			case kafka.Error:
-				// Consumer errors
-				log.Printf("❌ Consumer error: %v (code=%v)", e.String(), e.Code())
-
-				// Fatal errors (require restart)
-				if e.Code() == kafka.ErrAllBrokersDown {
-					return fmt.Errorf("all brokers down")
-				}
-
-			case *kafka.Stats:
-				// Statistics (every 5 seconds)
-				s.handleStats(e)
-
-			default:
-				log.Printf("🔍 Unhandled event: %T", ev)
+				log.Printf("❌ Error: %v", e)
 			}
 		}
 	}
 }
 
-func (s *InventoryService) processMessage(msg *kafka.Message) error {
-	startTime := time.Now()
-
-	// Parse order
+func (s *InventoryService) processMessage(ctx context.Context, msg *kafka.Message) error {
 	var order Order
 	if err := json.Unmarshal(msg.Value, &order); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	log.Printf("📦 Processing order: %s (partition=%d, offset=%d, key=%s)",
-		order.OrderID,
-		msg.TopicPartition.Partition,
-		msg.TopicPartition.Offset,
-		string(msg.Key))
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// IDEMPOTENCY CHECK: Prevent duplicate processing
-	if s.processed[order.IdempotencyKey] {
-		log.Printf("⏭  Order %s already processed (idempotent skip)", order.OrderID)
-		s.messagesSkipped++
-		return nil // Not an error, just skip
-	}
-
-	// Check if product exists
-	available, exists := s.inventory[order.ProductID]
-	if !exists {
-		log.Printf("⚠️  Product %s not found in inventory", order.ProductID)
-		// PRODUCTION: Send to "orders.rejected" topic
-		return nil // Not a fatal error
-	}
-
-	// Check inventory availability
-	if available < order.Quantity {
-		log.Printf("⚠️  Insufficient inventory for %s (need=%d, available=%d)",
-			order.ProductID, order.Quantity, available)
-		// PRODUCTION: Send to "orders.rejected" topic with reason
-		return nil
-	}
-
-	// Reserve inventory
-	s.inventory[order.ProductID] -= order.Quantity
-	s.processed[order.IdempotencyKey] = true
-	remaining := s.inventory[order.ProductID]
-
-	processingTime := time.Since(startTime)
-	s.messagesProcessed++
-
-	log.Printf("✅ Order %s completed: reserved %d units of %s (remaining=%d, processing_time=%dms)",
-		order.OrderID,
-		order.Quantity,
-		order.ProductID,
-		remaining,
-		processingTime.Milliseconds())
-
-	// Simulate processing time (remove in production)
-	time.Sleep(10 * time.Millisecond)
-
-	return nil
-}
-
-func (s *InventoryService) handleStats(stats *kafka.Stats) {
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(stats.String()), &data); err != nil {
-		return
-	}
-
-	// Extract consumer lag (critical metric)
-	if cgrp, ok := data["cgrp"].(map[string]interface{}); ok {
-		if assignment, ok := cgrp["assignment"].([]interface{}); ok {
-			totalLag := int64(0)
-			for _, part := range assignment {
-				if p, ok := part.(map[string]interface{}); ok {
-					if lag, ok := p["consumer_lag"].(float64); ok {
-						totalLag += int64(lag)
-					}
-				}
-			}
-
-			if totalLag > 0 {
-				log.Printf("📊 Consumer lag: %d messages", totalLag)
-
-				// PRODUCTION: Alert if lag exceeds threshold
-				if totalLag > 10000 {
-					log.Printf("⚠️  HIGH LAG ALERT: %d messages behind", totalLag)
-				}
-			}
-		}
-	}
-}
-
-func (s *InventoryService) reportMetrics() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	log.Printf("📊 Metrics (last 30s):")
-	log.Printf("   - Processed: %d", s.messagesProcessed)
-	log.Printf("   - Skipped (idempotency): %d", s.messagesSkipped)
-	log.Printf("   - Failed: %d", s.messagesFailed)
-	log.Printf("   - Unique orders processed: %d", len(s.processed))
-
-	log.Printf("📦 Current inventory:")
-	for productID, qty := range s.inventory {
-		log.Printf("   - %s: %d units", productID, qty)
-	}
-}
-
-func (s *InventoryService) shutdown() error {
-	log.Println("🛑 Shutting down consumer...")
-
-	// Final metrics report
-	s.reportMetrics()
-
-	// Close consumer (commits offsets automatically)
-	if err := s.consumer.Close(); err != nil {
-		log.Printf("Error closing consumer: %v", err)
 		return err
 	}
 
-	log.Println("✅ Consumer closed successfully")
+	log.Printf("📦 Processing: %s", order.OrderID)
+
+	existing, err := s.repo.CheckIdempotency(ctx, order.IdempotencyKey)
+	if err != nil {
+		return err
+	}
+
+	if existing != nil {
+		log.Printf("⏭  Already processed: %s", order.OrderID)
+		s.messagesSkipped++
+		return nil
+	}
+
+	err = s.repo.ReserveInventory(ctx, order.OrderID, order.UserID, order.ProductID, order.Quantity, order.IdempotencyKey)
+	if err != nil {
+		if err == repository.ErrInsufficientStock {
+			log.Printf("⚠️  Insufficient stock")
+			return nil
+		}
+		return err
+	}
+
+	s.messagesProcessed++
+	log.Printf("✅ Completed: %s", order.OrderID)
 	return nil
 }
 
+func (s *InventoryService) reportMetrics(ctx context.Context) {
+	stats, _ := s.repo.GetInventoryStats(ctx)
+	log.Printf("📊 Processed=%d Skipped=%d Failed=%d",
+		s.messagesProcessed, s.messagesSkipped, s.messagesFailed)
+	log.Printf("📦 Inventory: %v", stats)
+}
+
+func (s *InventoryService) shutdown() error {
+	s.pool.Close()
+	return s.consumer.Close()
+}
+
 func main() {
-	// Read configuration from environment
-	brokers := os.Getenv("KAFKA_BROKERS")
-	if brokers == "" {
-		brokers = "localhost:19092" // Default for local testing
-	}
+	brokers := getEnv("KAFKA_BROKERS", "localhost:19092")
+	groupID := getEnv("KAFKA_GROUP_ID", "inventory-group")
+	instanceID := getEnv("HOSTNAME", "inventory-1")
 
-	groupID := os.Getenv("KAFKA_GROUP_ID")
-	if groupID == "" {
-		groupID = "inventory-consumer-group"
-	}
+	dbConfig := db.DefaultConfig()
+	dbConfig.Host = getEnv("DB_HOST", "localhost")
+	dbConfig.User = getEnv("DB_USER", "postgres")
+	dbConfig.Password = getEnv("DB_PASSWORD", "postgres")
+	dbConfig.DBName = getEnv("DB_NAME", "inventory_db")
 
-	instanceID := os.Getenv("HOSTNAME")
-	if instanceID == "" {
-		instanceID = fmt.Sprintf("inventory-consumer-%d", time.Now().Unix())
-	}
-
-	topics := []string{"orders"}
-
-	// Create service
-	service, err := NewInventoryService(brokers, groupID, instanceID, topics)
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, dbConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
+	service, err := NewInventoryService(brokers, groupID, instanceID, []string{"orders"}, pool)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Handle shutdown signals
+	ctx, cancel := context.WithCancel(context.Background())
 	sigterm := make(chan os.Signal, 1)
 	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigterm
-		log.Println("🛑 Shutdown signal received")
 		cancel()
 	}()
 
-	// Start processing
 	if err := service.ProcessOrders(ctx); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

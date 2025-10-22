@@ -1,23 +1,18 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
-
-	"producer/config"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 )
 
-// Order represents the business domain model
+// Order represents the domain model
 type Order struct {
 	OrderID        string    `json:"order_id"`
 	UserID         string    `json:"user_id"`
@@ -27,7 +22,7 @@ type Order struct {
 	IdempotencyKey string    `json:"idempotency_key"`
 }
 
-// OrderService handles HTTP API and Kafka production
+// OrderService handles HTTP requests and Kafka production
 type OrderService struct {
 	producer *kafka.Producer
 	topic    string
@@ -35,77 +30,73 @@ type OrderService struct {
 
 // NewOrderService creates a new service instance
 func NewOrderService(brokers, topic string) (*OrderService, error) {
-	// Create producer with production-grade config
-	producer, err := kafka.NewProducer(config.ProducerConfig(brokers))
+	// ❌ BASELINE: Naive/Default Kafka producer configuration
+	// This demonstrates common mistakes in production
+	config := &kafka.ConfigMap{
+		"bootstrap.servers": brokers,
+
+		// ❌ MISTAKE 1: Idempotence disabled (default: false)
+		// Impact: Network retries can create duplicate messages
+		"enable.idempotence": false,
+
+		// ❌ MISTAKE 2: Only wait for leader acknowledgment
+		// Impact: Data loss if leader fails before replication
+		"acks": 1,
+
+		// ❌ MISTAKE 3: No batching (default values)
+		// Impact: One network call per message = terrible throughput
+		"batch.size": 16384, // Default 16KB
+		"linger.ms":  0,     // Send immediately (no batching)
+
+		// ❌ MISTAKE 4: No compression
+		// Impact: High network bandwidth usage
+		"compression.type": "none",
+
+		// ❌ MISTAKE 5: Small queue buffer
+		// Impact: Backpressure under load
+		"queue.buffering.max.messages": 10000, // Small buffer
+
+		// Basic settings
+		"client.id":          "order-service-baseline",
+		"request.timeout.ms": 30000,
+	}
+
+	producer, err := kafka.NewProducer(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create producer: %w", err)
 	}
 
-	log.Printf("✅ Producer created successfully")
-	log.Printf("📋 Configuration:")
-	log.Printf("   - Brokers: %s", brokers)
-	log.Printf("   - Topic: %s", topic)
-	log.Printf("   - Idempotence: enabled")
-	log.Printf("   - Compression: lz4")
-	log.Printf("   - Batch size: 100KB")
-	log.Printf("   - Linger: 10ms")
+	log.Printf("⚠️  BASELINE Producer created (NOT production-ready)")
+	log.Printf("❌ Idempotence: DISABLED (duplicates possible)")
+	log.Printf("❌ Acks: 1 (data loss possible)")
+	log.Printf("❌ Batching: DISABLED (low throughput)")
+	log.Printf("❌ Compression: NONE (high network usage)")
 
 	service := &OrderService{
 		producer: producer,
 		topic:    topic,
 	}
 
-	// Start delivery report handler
+	// Start basic delivery report handler (no error handling)
 	go service.handleDeliveryReports()
 
 	return service, nil
 }
 
-// handleDeliveryReports processes async delivery confirmations
-// IMPORTANT: This goroutine MUST be running to prevent channel deadlock
+// handleDeliveryReports - BASELINE: Minimal error handling
 func (s *OrderService) handleDeliveryReports() {
 	for e := range s.producer.Events() {
 		switch ev := e.(type) {
 		case *kafka.Message:
-			// Message delivery report
+			// ❌ MISTAKE 6: Just log errors, no retry or DLQ
 			if ev.TopicPartition.Error != nil {
-				// PRODUCTION: Implement retry logic or DLQ here
-				log.Printf("❌ Delivery failed: %v (key=%s, partition=%d)",
-					ev.TopicPartition.Error,
-					string(ev.Key),
-					ev.TopicPartition.Partition)
+				log.Printf("❌ Delivery failed: %v", ev.TopicPartition.Error)
+				// In production: Lost message! No retry, no DLQ
 			} else {
-				log.Printf("✅ Delivered: partition=%d offset=%d latency=%dms",
+				log.Printf("✅ Delivered: partition=%d offset=%d",
 					ev.TopicPartition.Partition,
-					ev.TopicPartition.Offset,
-					ev.TopicPartition.Offset) // Simplified; add latency tracking in prod
+					ev.TopicPartition.Offset)
 			}
-
-		case kafka.Error:
-			// General producer errors
-			// These are informational and handled internally by librdkafka
-			log.Printf("⚠️  Producer error: %v (code=%v)", ev.String(), ev.Code())
-
-		case *kafka.Stats:
-			// Statistics event (every 5 seconds based on config)
-			// PRODUCTION: Send to monitoring system (Prometheus/Grafana)
-			var stats map[string]interface{}
-			json.Unmarshal([]byte(ev.String()), &stats)
-
-			// Extract key metrics
-			if brokers, ok := stats["brokers"].(map[string]interface{}); ok {
-				for brokerName, brokerData := range brokers {
-					if broker, ok := brokerData.(map[string]interface{}); ok {
-						outbufCnt := broker["outbuf_cnt"]
-						outbufMsgCnt := broker["outbuf_msg_cnt"]
-						log.Printf("📊 Stats [%s]: outbuf_cnt=%v outbuf_msg_cnt=%v",
-							brokerName, outbufCnt, outbufMsgCnt)
-					}
-				}
-			}
-
-		default:
-			log.Printf("🔍 Unhandled event: %v", ev)
 		}
 	}
 }
@@ -117,7 +108,7 @@ func (s *OrderService) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Parse request body
+	// Parse request
 	var req struct {
 		UserID    string `json:"user_id"`
 		ProductID string `json:"product_id"`
@@ -125,18 +116,17 @@ func (s *OrderService) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Validate required fields
+	// Basic validation
 	if req.UserID == "" || req.ProductID == "" || req.Quantity <= 0 {
-		http.Error(w, "Missing or invalid fields (user_id, product_id, quantity required)",
-			http.StatusBadRequest)
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
 		return
 	}
 
-	// Create order with unique ID
+	// Create order
 	orderID := fmt.Sprintf("ord_%d_%s", time.Now().Unix(), uuid.New().String()[:8])
 	order := Order{
 		OrderID:        orderID,
@@ -147,40 +137,36 @@ func (s *OrderService) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 		IdempotencyKey: fmt.Sprintf("%s_v1", orderID),
 	}
 
-	// Serialize to JSON
+	// Serialize
 	orderBytes, err := json.Marshal(order)
 	if err != nil {
-		log.Printf("Failed to serialize order: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, "Failed to serialize", http.StatusInternalServerError)
 		return
 	}
 
-	// Produce to Kafka
-	// CRITICAL: Use order_id as key for partition consistency
+	// ❌ MISTAKE 7: NO PARTITION KEY
+	// Impact: Messages distributed randomly across partitions
+	// Result: Same order can be processed by different consumers simultaneously
+	// Consequence: RACE CONDITIONS, out-of-order processing
 	err = s.producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &s.topic,
-			Partition: kafka.PartitionAny, // Partitioner uses key hash
+			Partition: kafka.PartitionAny,
 		},
-		Key:   []byte(order.OrderID), // CONSISTENCY: Same order → same partition
+		// ❌ CRITICAL MISTAKE: No key! Random partition assignment
+		Key:   nil, // This is the RACE CONDITION source
 		Value: orderBytes,
-		Headers: []kafka.Header{
-			{Key: "content-type", Value: []byte("application/json")},
-			{Key: "client-id", Value: []byte("order-service")},
-			{Key: "timestamp", Value: []byte(order.Timestamp.Format(time.RFC3339))},
-		},
 	}, nil)
 
 	if err != nil {
-		log.Printf("Failed to produce message: %v", err)
+		log.Printf("Failed to produce: %v", err)
 		http.Error(w, "Failed to process order", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("📦 Order created: %s (user=%s, product=%s, qty=%d)",
-		orderID, req.UserID, req.ProductID, req.Quantity)
+	log.Printf("📦 Order created: %s (NO KEY - race conditions possible)", orderID)
 
-	// Return 202 Accepted (async processing)
+	// Return 202 Accepted
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -193,57 +179,40 @@ func (s *OrderService) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 
 // HealthHandler handles GET /health
 func (s *OrderService) HealthHandler(w http.ResponseWriter, r *http.Request) {
-	// Check producer health (metadata fetch = broker connectivity test)
-	metadata, err := s.producer.GetMetadata(&s.topic, false, 5000)
-	if err != nil {
-		log.Printf("Health check failed: %v", err)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status": "unhealthy",
-			"error":  err.Error(),
-		})
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":       "healthy",
-		"brokers":      len(metadata.Brokers),
-		"topic_exists": len(metadata.Topics) > 0,
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "healthy",
+		"version": "baseline",
 	})
 }
 
-// Close gracefully shuts down the producer
+// Close - BASELINE: Minimal cleanup
 func (s *OrderService) Close() {
-	log.Println("🛑 Shutting down producer...")
+	log.Println("🛑 Shutting down baseline producer...")
 
-	// Flush pending messages (blocking with 15s timeout)
-	remaining := s.producer.Flush(15 * 1000)
+	// ❌ MISTAKE 8: Short flush timeout
+	// Impact: Messages in queue may be lost on shutdown
+	remaining := s.producer.Flush(5 * 1000) // Only 5 seconds
 	if remaining > 0 {
-		log.Printf("⚠️  Warning: %d messages still pending after flush timeout", remaining)
-	} else {
-		log.Println("✅ All messages flushed successfully")
+		log.Printf("⚠️  WARNING: %d messages lost on shutdown", remaining)
 	}
 
 	s.producer.Close()
 }
 
 func main() {
-	// Read configuration from environment
-	brokers := os.Getenv("KAFKA_BROKERS")
-	if brokers == "" {
-		brokers = "localhost:19092,localhost:29092,localhost:39092" // Default for local testing
+	// Read configuration
+	brokers := "localhost:19092"
+	if b := os.Getenv("KAFKA_BROKERS"); b != "" {
+		brokers = b
 	}
 
-	port := os.Getenv("SERVICE_PORT")
-	if port == "" {
-		port = "8081"
+	port := "8081"
+	if p := os.Getenv("SERVICE_PORT"); p != "" {
+		port = p
 	}
 
-	topic := os.Getenv("KAFKA_TOPIC")
-	if topic == "" {
-		topic = "orders"
-	}
+	topic := "orders"
 
 	// Create service
 	service, err := NewOrderService(brokers, topic)
@@ -256,35 +225,14 @@ func main() {
 	http.HandleFunc("/orders", service.CreateOrderHandler)
 	http.HandleFunc("/health", service.HealthHandler)
 
-	// Start HTTP server in goroutine
-	server := &http.Server{
-		Addr:         ":" + port,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
+	log.Printf("🚀 BASELINE Order Service running on :%s", port)
+	log.Printf("⚠️  This is a NAIVE implementation with known issues:")
+	log.Printf("   - Race conditions possible (no partition key)")
+	log.Printf("   - Low throughput (no batching)")
+	log.Printf("   - Duplicate messages possible (no idempotence)")
+	log.Printf("   - Data loss possible (acks=1)")
 
-	go func() {
-		log.Printf("🚀 Order Service running on :%s", port)
-		log.Printf("📍 Endpoints:")
-		log.Printf("   POST   /orders  - Create order")
-		log.Printf("   GET    /health  - Health check")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
-		}
-	}()
-
-	// Graceful shutdown
-	sigterm := make(chan os.Signal, 1)
-	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
-	<-sigterm
-
-	log.Println("🛑 Shutdown signal received")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
 	}
 }

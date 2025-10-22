@@ -1,79 +1,42 @@
 version: '3.8'
 
 networks:
-  redpanda_network:
+  docker_network:
     driver: bridge
 
 volumes:
   redpanda-0: null
   redpanda-1: null
   redpanda-2: null
+  postgres_data: null
 
 services:
-  # ============================================
-  # REDPANDA BROKER 0 (Seed Broker)
-  # ============================================
   redpanda-0:
     image: docker.redpanda.com/redpandadata/redpanda:v25.2.5
     container_name: redpanda-0
     command:
       - redpanda
       - start
-      # Kafka API Listeners
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda-0:9092,external://localhost:19092
-      
-      # Pandaproxy (HTTP Proxy for Kafka API)
       - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
       - --advertise-pandaproxy-addr=internal://redpanda-0:8082,external://localhost:18082
-      
-      # Schema Registry
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
-      
-      # RPC (Internal cluster communication)
       - --rpc-addr=redpanda-0:33145
       - --advertise-rpc-addr=redpanda-0:33145
-      
-      # Mode: dev-container (optimized for Docker)
       - --mode=dev-container
-      
-      # Resource allocation (1 core for demo)
       - --smp=1
-      - --memory=1G
-      - --reserve-memory=0M
-      
-      # Logging
       - --default-log-level=info
-    
-    environment:
-      # IMPORTANT: Enable authentication for production
-      # RP_BOOTSTRAP_USER: "admin:strongpassword123"
-      
-      # Cluster configuration
-      REDPANDA_CLUSTER_ID: "kafka-showcase-cluster"
-    
     volumes:
       - redpanda-0:/var/lib/redpanda/data
-    
     networks:
-      - redpanda_network
-    
+      - docker_network
     ports:
-      - "18081:18081"  # Schema Registry (external)
-      - "18082:18082"  # Pandaproxy (external)
-      - "19092:19092"  # Kafka API (external)
-      - "19644:9644"   # Admin API (external)
-    
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      - "18081:18081"
+      - "18082:18082"
+      - "19092:19092"
+      - "19644:9644"
 
-  # ============================================
-  # REDPANDA BROKER 1
-  # ============================================
   redpanda-1:
     image: docker.redpanda.com/redpandadata/redpanda:v25.2.5
     container_name: redpanda-1
@@ -87,43 +50,22 @@ services:
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:28081
       - --rpc-addr=redpanda-1:33145
       - --advertise-rpc-addr=redpanda-1:33145
+      - --seeds=redpanda-0:33145
       - --mode=dev-container
       - --smp=1
-      - --memory=1G
-      - --reserve-memory=0M
       - --default-log-level=info
-      # Join the cluster via seed broker
-      - --seeds=redpanda-0:33145
-    
-    environment:
-      REDPANDA_CLUSTER_ID: "kafka-showcase-cluster"
-    
     volumes:
       - redpanda-1:/var/lib/redpanda/data
-    
     networks:
-      - redpanda_network
-    
+      - docker_network
     ports:
       - "28081:28081"
       - "28082:28082"
       - "29092:29092"
       - "29644:9644"
-    
     depends_on:
-      redpanda-0:
-        condition: service_healthy
-    
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      - redpanda-0
 
-  # ============================================
-  # REDPANDA BROKER 2
-  # ============================================
   redpanda-2:
     image: docker.redpanda.com/redpandadata/redpanda:v25.2.5
     container_name: redpanda-2
@@ -137,50 +79,27 @@ services:
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:38081
       - --rpc-addr=redpanda-2:33145
       - --advertise-rpc-addr=redpanda-2:33145
+      - --seeds=redpanda-0:33145
       - --mode=dev-container
       - --smp=1
-      - --memory=1G
-      - --reserve-memory=0M
       - --default-log-level=info
-      - --seeds=redpanda-0:33145
-    
-    environment:
-      REDPANDA_CLUSTER_ID: "kafka-showcase-cluster"
-    
     volumes:
       - redpanda-2:/var/lib/redpanda/data
-    
     networks:
-      - redpanda_network
-    
+      - docker_network
     ports:
       - "38081:38081"
       - "38082:38082"
       - "39092:39092"
       - "39644:9644"
-    
     depends_on:
-      redpanda-0:
-        condition: service_healthy
-    
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      - redpanda-0
 
-  # ============================================
-  # REDPANDA CONSOLE (Web UI)
-  # ============================================
   console:
-    image: docker.redpanda.com/redpandadata/console:v2.8.1  # Updated version
+    image: docker.redpanda.com/redpandadata/console:v2.8.1
     container_name: redpanda-console
-    networks:
-      - redpanda_network
     entrypoint: /bin/sh
     command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
-    
     environment:
       CONFIG_FILEPATH: /tmp/config.yml
       CONSOLE_CONFIG_FILE: |
@@ -192,7 +111,6 @@ services:
           schemaRegistry:
             enabled: true
             urls: ["http://redpanda-0:8081"]
-        
         redpanda:
           adminApi:
             enabled: true
@@ -200,29 +118,32 @@ services:
               - "http://redpanda-0:9644"
               - "http://redpanda-1:9644"
               - "http://redpanda-2:9644"
-        
-        # Optional: Enable authentication
-        # login:
-        #   enabled: true
-        #   jwtSecret: "your-secret-key-here"
-        #   plain:
-        #     - username: admin
-        #       password: admin123
-    
     ports:
       - "8080:8080"
-    
+    networks:
+      - docker_network
     depends_on:
-      redpanda-0:
-        condition: service_healthy
-      redpanda-1:
-        condition: service_healthy
-      redpanda-2:
-        condition: service_healthy
-    
+      - redpanda-0
+      - redpanda-1
+      - redpanda-2
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: inventory-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inventory_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./consumer/schema/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - docker_network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/admin/health || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+
