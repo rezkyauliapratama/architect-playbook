@@ -1,0 +1,495 @@
+
+{
+  "info": {
+    "name": "Kafka Showcase - Order & Inventory System",
+    "_postman_id": "kafka-showcase-collection-001",
+    "description": "Production-grade Kafka showcase demonstrating:\n- Consistency (partition keying)\n- Throughput (batching & compression)\n- Fault Tolerance (manual offset commit)\n\nRedpanda Cluster: 3 brokers\nServices: Order Service (Producer) + Inventory Service (Consumer)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "Order Service",
+      "item": [
+        {
+          "name": "Health Check - Order Service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Service is healthy\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"healthy\");",
+                  "});",
+                  "",
+                  "pm.test(\"Brokers are connected\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.brokers).to.be.greaterThan(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{order_service_url}}/health",
+              "host": ["{{order_service_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check if Order Service is healthy and can connect to Kafka brokers.\n\n**Expected Response:**\n``````"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order - Laptop",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202 Accepted\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "pm.test(\"Order ID is returned\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.order_id).to.exist;",
+                  "    pm.environment.set(\"last_order_id\", jsonData.order_id);",
+                  "});",
+                  "",
+                  "pm.test(\"Status is accepted\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"accepted\");",
+                  "});",
+                  "",
+                  "pm.test(\"Response time is less than 200ms\", function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_laptop_001\",\n  \"quantity\": 2\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "Create a new order for a laptop.\n\n**Request:**\n- `user_id`: Customer identifier\n- `product_id`: Product SKU\n- `quantity`: Number of units\n\n**Key Pattern:**\nOrder ID is used as Kafka partition key to ensure:\n- Same order → same partition → same consumer\n- Zero race conditions\n\n**Expected Response:**\n``````"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order - Mouse",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202 Accepted\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "pm.test(\"Order ID is returned\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.order_id).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_mouse_002\",\n  \"quantity\": 5\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "Create order for gaming mouse (high quantity)."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order - Keyboard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202 Accepted\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_keyboard_003\",\n  \"quantity\": 3\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "Create order for mechanical keyboard."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order - Monitor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202 Accepted\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_monitor_004\",\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "Create order for 4K monitor."
+          },
+          "response": []
+        }
+      ],
+      "description": "Order Service endpoints (Producer)\n\n**Functionality:**\n- Receives HTTP orders\n- Validates request\n- Produces to Kafka with partition keying\n- Returns 202 Accepted (async processing)"
+    },
+    {
+      "name": "Load Testing Scenarios",
+      "item": [
+        {
+          "name": "Bulk Orders - 10 Laptops",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate random user ID for load testing",
+                  "pm.environment.set(\"user_id\", \"usr_\" + Math.floor(Math.random() * 10000));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "pm.test(\"Response time < 200ms\", function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_laptop_001\",\n  \"quantity\": 10\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "**Load Testing Scenario:**\nCreate bulk order to test throughput.\n\n**Test Metrics:**\n- P50 latency: <50ms\n- P99 latency: <150ms\n- Throughput: 1000+ req/sec\n\n**Run with Collection Runner:**\n1. Select this folder\n2. Set iterations: 100\n3. Set delay: 0ms\n4. Click Run"
+          },
+          "response": []
+        },
+        {
+          "name": "Random Product Order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Random product selection for load testing",
+                  "const products = [",
+                  "    \"prd_laptop_001\",",
+                  "    \"prd_mouse_002\",",
+                  "    \"prd_keyboard_003\",",
+                  "    \"prd_monitor_004\"",
+                  "];",
+                  "",
+                  "const randomProduct = products[Math.floor(Math.random() * products.length)];",
+                  "const randomQuantity = Math.floor(Math.random() * 5) + 1;",
+                  "const randomUser = \"usr_\" + Math.floor(Math.random() * 10000);",
+                  "",
+                  "pm.environment.set(\"random_product\", randomProduct);",
+                  "pm.environment.set(\"random_quantity\", randomQuantity);",
+                  "pm.environment.set(\"user_id\", randomUser);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 202\", function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"{{random_product}}\",\n  \"quantity\": {{random_quantity}}\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "**Random Load Testing:**\nSimulates realistic traffic with:\n- Random users\n- Random products\n- Random quantities (1-5)\n\n**Use Case:**\nTest partition distribution and consumer load balancing."
+          },
+          "response": []
+        }
+      ],
+      "description": "Load testing scenarios for performance benchmarking.\n\n**Run with:**\n- Postman Collection Runner (100-1000 iterations)\n- Newman CLI\n- k6 (recommended for heavy load)"
+    },
+    {
+      "name": "Error Scenarios",
+      "item": [
+        {
+          "name": "Invalid Request - Missing user_id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"prd_laptop_001\",\n  \"quantity\": 2\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "**Test Case:** Missing required field\n\n**Expected:** 400 Bad Request"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid Request - Zero Quantity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"product_id\": \"prd_laptop_001\",\n  \"quantity\": 0\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "**Test Case:** Invalid quantity (zero)\n\n**Expected:** 400 Bad Request"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid Request - Malformed JSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"usr_001\",\n  \"product_id\": \"prd_laptop_001\",\n  \"quantity\": 2,\n  // Invalid JSON comment\n}"
+            },
+            "url": {
+              "raw": "{{order_service_url}}/orders",
+              "host": ["{{order_service_url}}"],
+              "path": ["orders"]
+            },
+            "description": "**Test Case:** Malformed JSON\n\n**Expected:** 400 Bad Request"
+          },
+          "response": []
+        }
+      ],
+      "description": "Error handling test cases.\n\n**Validates:**\n- Input validation\n- Error responses\n- HTTP status codes"
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        {
+          "name": "Open Redpanda Console",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{console_url}}",
+              "host": ["{{console_url}}"]
+            },
+            "description": "**Redpanda Console URL:**\nhttp://localhost:8080\n\n**Features:**\n- View topics and partitions\n- Browse messages\n- Monitor consumer groups\n- Check consumer lag\n- View broker health\n\n**Quick Links:**\n- Topics: /topics\n- Consumer Groups: /groups\n- Brokers: /admin/brokers"
+          },
+          "response": []
+        }
+      ],
+      "description": "Monitoring and observability links."
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set default user_id if not exists",
+          "if (!pm.environment.get(\"user_id\")) {",
+          "    pm.environment.set(\"user_id\", \"usr_001\");",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test: Log response time",
+          "console.log(\"Response time: \" + pm.response.responseTime + \"ms\");"
+        ]
+      }
+    }
+  ],
+  "variable": []
+}

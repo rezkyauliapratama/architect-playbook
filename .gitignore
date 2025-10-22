@@ -18,3 +18,6 @@ scripts
 charts/
 platform/clickhouse/docker/clickhouse
 __pycache__/
+src/go/services/.DS_Store
+src/go/services/notification-service/.DS_Store
+src/go/services/notification-service/internal/.DS_Store
