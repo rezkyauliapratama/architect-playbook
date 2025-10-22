@@ -9,27 +9,27 @@ echo ""
 chmod +x test-*.sh
 
 # Run all tests
-./basic/test-race-condition.sh
+sh basic/test-race-condition.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-./basic/test-duplicate.sh
+sh basic/test-duplicate.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-./basic/test-throughput-baseline.sh
+sh basic/test-throughput-baseline.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-./basic/asic/test-order-sequence.sh
+sh basic/test-order-sequence.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-./basic/test-crash-recovery.sh
+sh basic/test-crash-recovery.sh
 
 echo ""
 echo "╔════════════════════════════════════════════╗"
@@ -44,4 +44,4 @@ echo "✓ Out-of-order processing from random partitioning"
 echo "✓ Data loss/duplicates from auto-commit"
 echo ""
 echo "Next: Run optimized version to see improvements!"
-echo "      ./run-all-optimized-tests.sh"
+echo "      sh run-all-optimized-tests.sh"
