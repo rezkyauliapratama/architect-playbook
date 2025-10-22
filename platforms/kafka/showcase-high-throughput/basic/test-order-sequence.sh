@@ -1,55 +1,66 @@
 #!/bin/bash
 
-echo "🧪 TEST 4: MESSAGE ORDERING TEST"
-echo "================================="
-echo "Scenario: Send 5 events for same order (create→update→update→complete→cancel)"
-echo "Expected order: 1→2→3→4→5"
+echo "🧪 TEST 4: OUT-OF-ORDER TEST (HEAVY LOAD)"
+echo "=========================================="
+echo "Scenario: Multiple producers sending to same topic simultaneously"
 echo ""
 
-ORDER_BASE="ord_sequence_$(date +%s)"
+# Reset
+docker exec inventory-postgres psql -U postgres -d inventory_db -c "
+    UPDATE products SET reserved_quantity = 0;
+    TRUNCATE processed_orders, inventory_logs;
+" > /dev/null 2>&1
 
-# Send events with sequence
-echo "Sending 5 events in sequence..."
-for seq in 1 2 3 4 5; do
-  curl -s -X POST http://localhost:8081/orders \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"user_id\": \"usr_sequence\",
-      \"product_id\": \"prd_monitor_004\",
-      \"quantity\": ${seq}
-    }" | jq -r '.order_id'
-  sleep 0.1
+echo "Sending 200 orders from 4 parallel producers..."
+
+# Launch 4 producers in parallel
+for producer in {1..4}; do
+  (
+    for seq in $(seq $producer 4 200); do
+      curl -s -X POST http://localhost:8081/orders \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"user_id\": \"usr_parallel_test\",
+          \"product_id\": \"prd_laptop_001\",
+          \"quantity\": ${seq}
+        }" > /dev/null
+    done
+  ) &
 done
 
-echo ""
-echo "Waiting for processing (3s)..."
-sleep 3
+wait
+echo "✓ All 200 orders sent"
+sleep 5
 
-echo ""
-echo "Processing order:"
-docker exec inventory-postgres psql -U postgres -d inventory_db -c "
-    SELECT 
-        order_id,
-        quantity as sequence_num,
-        processed_at 
+# Analyze
+OUT_OF_ORDER=$(docker exec inventory-postgres psql -U postgres -d inventory_db -t -c "
+    WITH numbered AS (
+        SELECT 
+            quantity as sequence_sent,
+            ROW_NUMBER() OVER (ORDER BY processed_at) as position
+        FROM processed_orders 
+        WHERE user_id = 'usr_parallel_test'
+    )
+    SELECT COUNT(*) 
+    FROM numbered 
+    WHERE sequence_sent != position;
+" | tr -d ' ')
+
+TOTAL=$(docker exec inventory-postgres psql -U postgres -d inventory_db -t -c "
+    SELECT COUNT(*) 
     FROM processed_orders 
-    WHERE user_id = 'usr_sequence' 
-    ORDER BY processed_at;
-"
+    WHERE user_id = 'usr_parallel_test';
+" | tr -d ' ')
 
 echo ""
-echo "Check if sequence matches send order..."
-SEQUENCES=$(docker exec inventory-postgres psql -U postgres -d inventory_db -t -c "
-    SELECT array_agg(quantity ORDER BY processed_at) 
-    FROM processed_orders 
-    WHERE user_id = 'usr_sequence';
-" | tr -d ' {}')
+echo "Results:"
+echo "--------"
+echo "Total processed:    $TOTAL"
+echo "Out-of-order:       $OUT_OF_ORDER"
+echo "Out-of-order rate:  $(( OUT_OF_ORDER * 100 / TOTAL ))%"
 
-echo "Expected sequence: 1,2,3,4,5"
-echo "Actual sequence:   $SEQUENCES"
-
-if [ "$SEQUENCES" != "1,2,3,4,5" ]; then
+if [ "$OUT_OF_ORDER" -gt 20 ]; then
     echo ""
-    echo "❌ OUT-OF-ORDER PROCESSING DETECTED!"
-    echo "   Messages processed in wrong sequence"
+    echo "❌ SIGNIFICANT OUT-OF-ORDER PROCESSING!"
+    echo "   $(( OUT_OF_ORDER * 100 / TOTAL ))% of messages scrambled"
 fi

@@ -2,7 +2,7 @@
 docker compose -f docker-compose-baseline.yml up -d
 
 # 2. Wait for ready
-sleep 30
+sleep 10
 
 # 3. Create topic
 sh create-topic.sh

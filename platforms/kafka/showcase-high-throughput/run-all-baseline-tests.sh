@@ -6,7 +6,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Make all test scripts executable
-chmod +x test-*.sh
+chmod +x basic/test-*.sh
 
 # Run all tests
 sh basic/test-race-condition.sh
