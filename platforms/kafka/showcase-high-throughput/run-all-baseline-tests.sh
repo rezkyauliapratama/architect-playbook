@@ -6,30 +6,30 @@ echo "╚═══════════════════════�
 echo ""
 
 # Make all test scripts executable
-chmod +x basic/test-*.sh
+chmod +x tests/test-*.sh
 
 # Run all tests
-sh basic/test-race-condition.sh
+sh tests/test-race-condition.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-sh basic/test-duplicate.sh
+sh tests/test-duplicate.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-sh basic/test-throughput-baseline.sh
+sh tests/test-throughput-baseline.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-sh basic/test-order-sequence.sh
+sh tests/test-order-sequence.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-sh basic/test-crash-recovery.sh
+sh tests/test-crash-recovery.sh
 
 echo ""
 echo "╔════════════════════════════════════════════╗"
