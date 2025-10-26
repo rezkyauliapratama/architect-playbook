@@ -147,3 +147,40 @@ services:
       timeout: 5s
       retries: 5
 
+  order-service:
+    build: ./baseline/producer
+    container_name: order-service
+    environment:
+      KAFKA_BROKERS: "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092"
+      SERVICE_PORT: "8081"
+    ports:
+      - "8081:8081"
+    networks:
+      - docker_network
+    depends_on:
+      - redpanda-0
+      - redpanda-1
+      - redpanda-2
+    restart: unless-stopped
+
+  inventory-service:
+    build: ./baseline/consumer
+    # container_name: inventory-service
+    environment:
+      KAFKA_BROKERS: "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092"
+      KAFKA_GROUP_ID: "inventory-consumer-group"
+      HOSTNAME: "inventory-1"
+      DB_HOST: "postgres"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      DB_NAME: "inventory_db"
+    deploy:
+      replicas: 3
+    networks:
+      - docker_network
+    depends_on:
+      - redpanda-0
+      - redpanda-1
+      - redpanda-2
+      - postgres
+    restart: unless-stopped

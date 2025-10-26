@@ -1,5 +1,5 @@
 # 1. Start baseline system
-docker compose -f docker-compose-baseline.yml up -d
+docker compose up -d
 
 # 2. Wait for ready
 sleep 10
