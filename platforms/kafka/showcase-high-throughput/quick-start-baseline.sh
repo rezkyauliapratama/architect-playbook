@@ -8,3 +8,5 @@ sleep 10
 sh create-topic.sh
 # 4. Run tests
 sh run-all-baseline-tests.sh
+
+docker compose down
