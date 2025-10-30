@@ -168,7 +168,7 @@ services:
     # container_name: inventory-service
     environment:
       KAFKA_BROKERS: "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092"
-      KAFKA_GROUP_ID: "inventory-consumer-group"
+      KAFKA_GROUP_ID: "inventory-group-baseline"
       HOSTNAME: "inventory-1"
       DB_HOST: "postgres"
       DB_USER: "postgres"

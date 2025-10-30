@@ -4,9 +4,8 @@ docker compose up -d
 # 2. Wait for ready
 sleep 10
 
-# 3. Create topic
-sh create-topic.sh
-# 4. Run tests
+# 3. Run tests
 sh run-all-baseline-tests.sh
 
+# 4. Stop all services
 docker compose down
