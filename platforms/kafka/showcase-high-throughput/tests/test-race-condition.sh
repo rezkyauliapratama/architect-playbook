@@ -3,7 +3,7 @@
 set -e
 
 echo "╔═══════════════════════════════════════════════════════╗"
-echo "║  TEST 1: RACE CONDITION (ULTRA-AGGRESSIVE)           ║"
+echo "║  TEST 1: RACE CONDITION (ULTRA-AGGRESSIVE)            ║"
 echo "╚═══════════════════════════════════════════════════════╝"
 echo ""
 
@@ -56,7 +56,7 @@ echo "⏳ Sending ${CONCURRENT_ORDERS} orders as fast as possible..."
 for i in $(seq 1 $CONCURRENT_ORDERS); do
   USER_ID="usr_duplicate_${i}"
 
- echo "  User ${USER_ID}: Sending order ${RETRIES}x (retry simulation)..."
+#  echo "  User ${USER_ID}: Sending order ${RETRIES}x (retry simulation)..."
   
   for retry in $(seq 1 $RETRIES); do
     # Send same order multiple times (simulate producer retry without idempotence)

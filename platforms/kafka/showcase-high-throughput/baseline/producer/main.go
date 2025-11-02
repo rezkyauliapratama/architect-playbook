@@ -148,7 +148,7 @@ func (s *OrderService) Close() {
 }
 
 func main() {
-	brokers := getEnv("KAFKA_BROKERS", "localhost:19092")
+	brokers := getEnv("KAFKA_BROKERS", "redpanda-0:19092,redpanda-1:29092,redpanda-2:39092")
 	port := getEnv("SERVICE_PORT", "8081")
 	topic := getEnv("KAFKA_TOPIC", "orders")
 

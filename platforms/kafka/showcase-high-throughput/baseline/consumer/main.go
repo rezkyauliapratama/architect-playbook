@@ -291,7 +291,7 @@ func (s *InventoryService) shutdown() error {
 
 func main() {
 	// Configuration
-	brokers := getEnv("KAFKA_BROKERS", "localhost:19092")
+	brokers := getEnv("KAFKA_BROKERS", "redpanda-0:19092,redpanda-1:29092,redpanda-2:39092")
 	groupID := getEnv("KAFKA_GROUP_ID", "inventory-group-baseline")
 
 	dbHost := getEnv("DB_HOST", "localhost")
