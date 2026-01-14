@@ -25,7 +25,7 @@ echo ""
 
 sh create-topic.sh
 echo ""
-sh tests/test-throughput-baseline.sh
+sh tests/test-throughput.sh
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
