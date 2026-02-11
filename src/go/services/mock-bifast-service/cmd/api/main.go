@@ -48,7 +48,7 @@ func main() {
 
 	// Initialize repositories
 	txnRepo := repository.NewTransactionRepository(db, log.Logger)
-	accRepo := repository.NewAccountRepository(log.Logger)
+	accRepo := repository.NewAccountRepository(db, log.Logger)
 
 	// Initialize notification client
 	notificationClient := client.NewNotificationClient(
