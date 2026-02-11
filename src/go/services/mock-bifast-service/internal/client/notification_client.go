@@ -1,93 +1,235 @@
-// internal/client/notification_client.go
 package client
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
-	"github.com/go-resty/resty/v2"
-	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
-	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/config"
-	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/dto"
+	"github.com/rs/zerolog"
+
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 )
 
-type NotificationClient interface {
-	SendTransferNotification(ctx context.Context, transaction *dto.TransactionStatusResponse) error
+// NotificationClient handles sending notifications to notification service
+type NotificationClient struct {
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+	logger     zerolog.Logger
+	enabled    bool
 }
 
-type notificationClient struct {
-	client *resty.Client
-	config *config.Config
+// NotificationClientConfig holds notification client configuration
+type NotificationClientConfig struct {
+	BaseURL    string
+	APIKey     string
+	Timeout    time.Duration
+	Enabled    bool
+	RetryCount int
 }
 
-func NewNotificationClient(config *config.Config) NotificationClient {
-	client := resty.New()
+// NotificationRequest represents the request payload to notification service
+type NotificationRequest struct {
+	Type      string                 `json:"type"`
+	Channel   []string               `json:"channel"`
+	Recipient NotificationRecipient  `json:"recipient"`
+	Data      map[string]interface{} `json:"data"`
+	Template  string                 `json:"template,omitempty"`
+	Priority  string                 `json:"priority,omitempty"`
+}
 
-	// Optimize for performance
-	client.SetTimeout(3 * time.Second)
-	client.SetRetryCount(2)
-	client.SetRetryWaitTime(100 * time.Millisecond)
-	client.SetRetryMaxWaitTime(500 * time.Millisecond)
+// NotificationRecipient represents the notification recipient
+type NotificationRecipient struct {
+	UserID      string `json:"userId,omitempty"`
+	Email       string `json:"email,omitempty"`
+	PhoneNumber string `json:"phoneNumber,omitempty"`
+	AccountNo   string `json:"accountNo,omitempty"`
+}
 
-	return &notificationClient{
-		client: client,
-		config: config,
+// NotificationResponse represents the response from notification service
+type NotificationResponse struct {
+	Success        bool   `json:"success"`
+	Message        string `json:"message"`
+	NotificationID string `json:"notificationId,omitempty"`
+}
+
+// NewNotificationClient creates a new notification client
+func NewNotificationClient(cfg NotificationClientConfig, log zerolog.Logger) *NotificationClient {
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 10 * time.Second
 	}
+
+	client := &NotificationClient{
+		baseURL: cfg.BaseURL,
+		apiKey:  cfg.APIKey,
+		httpClient: &http.Client{
+			Timeout: cfg.Timeout,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
+		logger:  log,
+		enabled: cfg.Enabled,
+	}
+
+	if cfg.Enabled {
+		log.Info().
+			Str("baseURL", cfg.BaseURL).
+			Dur("timeout", cfg.Timeout).
+			Msg("Notification client initialized")
+	} else {
+		log.Info().Msg("Notification client disabled")
+	}
+
+	return client
 }
 
-func (c *notificationClient) SendTransferNotification(ctx context.Context, transaction *dto.TransactionStatusResponse) error {
-	// If notification service URL is not configured, skip sending notification
-	if c.config.NotificationServiceURL == "" {
+// SendTransactionNotification sends transaction notification
+func (c *NotificationClient) SendTransactionNotification(ctx context.Context, txn *models.Transaction) error {
+	if !c.enabled {
+		c.logger.Debug().
+			Str("transactionId", txn.TransactionID).
+			Msg("Notification client disabled, skipping notification")
 		return nil
 	}
 
-	log := logger.Get().WithField("method", "notificationClient.SendTransferNotification")
+	// Determine notification type and template
+	notifType := "transaction.created"
+	template := "transaction_created"
+	priority := "normal"
 
-	// Format amounts for display
-	amountStr := fmt.Sprintf("Rp %.2f", transaction.Amount)
-
-	var message string
-	if transaction.Status == "COMPLETED" {
-		message = fmt.Sprintf("Your BI-FAST transfer of %s to account %s has been completed successfully. Reference ID: %s",
-			amountStr, transaction.DestinationAccount, transaction.ReferenceID)
-	} else if transaction.Status == "FAILED" {
-		message = fmt.Sprintf("Your BI-FAST transfer of %s to account %s has failed. Please try again. Reference ID: %s",
-			amountStr, transaction.DestinationAccount, transaction.ReferenceID)
-	} else {
-		message = fmt.Sprintf("Your BI-FAST transfer of %s to account %s is being processed. Reference ID: %s",
-			amountStr, transaction.DestinationAccount, transaction.ReferenceID)
+	switch txn.Status {
+	case string(models.StatusCompleted):
+		notifType = "transaction.completed"
+		template = "transaction_completed"
+		priority = "high"
+	case string(models.StatusFailed):
+		notifType = "transaction.failed"
+		template = "transaction_failed"
+		priority = "high"
 	}
 
-	notificationReq := &dto.NotificationRequest{
-		RecipientID: "customer", // In real system, this would be the customer's ID
-		Type:        "EMAIL",
-		Title:       fmt.Sprintf("BI-FAST Transfer %s", transaction.Status),
-		Message:     message,
-		Channel:     "BI_FAST",
-		App:         "BANK_APP",
-		Data: map[string]interface{}{
-			"transactionId": transaction.TransactionID,
-			"amount":        transaction.Amount,
-			"status":        transaction.Status,
-			"timestamp":     time.Now().Format(time.RFC3339),
+	// Build notification payload
+	payload := NotificationRequest{
+		Type:    notifType,
+		Channel: []string{"push", "email"},
+		Recipient: NotificationRecipient{
+			AccountNo: txn.SourceAccountNumber,
+			// Email and phone would come from account service in production
 		},
+		Data: map[string]interface{}{
+			"transactionId":       txn.TransactionID,
+			"referenceId":         txn.ReferenceID,
+			"sourceBankCode":      txn.SourceBankCode,
+			"sourceAccountNumber": txn.SourceAccountNumber,
+			"destBankCode":        txn.DestBankCode,
+			"destAccountNumber":   txn.DestAccountNumber,
+			"amount":              txn.Amount,
+			"currency":            txn.Currency,
+			"fee":                 txn.Fee,
+			"description":         txn.Description,
+			"status":              txn.Status,
+			"responseCode":        txn.ResponseCode,
+			"responseMsg":         txn.ResponseMsg,
+			"createdAt":           txn.CreatedAt.Format(time.RFC3339),
+		},
+		Template: template,
+		Priority: priority,
 	}
 
-	_, err := c.client.R().
-		SetContext(ctx).
-		SetBody(notificationReq).
-		Post(fmt.Sprintf("%s/api/v1/notifications", c.config.NotificationServiceURL))
+	if txn.CompletedAt != nil {
+		payload.Data["completedAt"] = txn.CompletedAt.Format(time.RFC3339)
+	}
 
+	return c.send(ctx, payload)
+}
+
+// SendAccountInquiryNotification sends account inquiry notification (optional)
+func (c *NotificationClient) SendAccountInquiryNotification(ctx context.Context, data map[string]interface{}) error {
+	if !c.enabled {
+		return nil
+	}
+
+	payload := NotificationRequest{
+		Type:     "account.inquiry",
+		Channel:  []string{"webhook"},
+		Data:     data,
+		Priority: "low",
+	}
+
+	return c.send(ctx, payload)
+}
+
+// send makes HTTP request to notification service
+func (c *NotificationClient) send(ctx context.Context, payload NotificationRequest) error {
+	// Marshal payload
+	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Error("Failed to send notification", err)
-		return err
+		c.logger.Error().Err(err).Msg("Failed to marshal notification payload")
+		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	log.Info(fmt.Sprint("Notification sent successfully", map[string]interface{}{
-		"transactionId": transaction.TransactionID,
-		"status":        transaction.Status,
-	}))
+	// Create request
+	url := fmt.Sprintf("%s/api/v1/notifications", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		c.logger.Error().Err(err).Msg("Failed to create notification request")
+		return fmt.Errorf("failed to create request: %w", err)
+	}
 
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "MockBiFast/1.0")
+
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
+
+	// Send request
+	startTime := time.Now()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error().Err(err).Str("url", url).Msg("Failed to send notification")
+		return fmt.Errorf("failed to send notification: %w", err)
+	}
+	defer resp.Body.Close()
+
+	duration := time.Since(startTime)
+
+	// Parse response
+	var notifResp NotificationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&notifResp); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to parse notification response")
+		// Don't return error, just log
+	}
+
+	// Check status code
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.logger.Error().
+			Int("statusCode", resp.StatusCode).
+			Str("type", payload.Type).
+			Msg("Notification service returned error")
+		return fmt.Errorf("notification failed with status %d", resp.StatusCode)
+	}
+
+	c.logger.Info().
+		Str("type", payload.Type).
+		Str("notificationId", notifResp.NotificationID).
+		Dur("duration", duration).
+		Int("statusCode", resp.StatusCode).
+		Msg("Notification sent successfully")
+
+	return nil
+}
+
+// Close closes the HTTP client connections
+func (c *NotificationClient) Close() error {
+	c.logger.Info().Msg("Closing notification client")
+	c.httpClient.CloseIdleConnections()
 	return nil
 }

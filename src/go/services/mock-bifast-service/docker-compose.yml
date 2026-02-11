@@ -1,0 +1,96 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: mockbifast-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mockbifast
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mockbifast"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mockbifast-network
+
+  # Mock BI-FAST Service
+  mockbifast:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mockbifast-service
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: production
+      VERSION: 1.0.0
+      LOG_LEVEL: info
+      
+      SERVER_PORT: 8080
+      SERVER_READ_TIMEOUT: 30s
+      SERVER_WRITE_TIMEOUT: 30s
+      
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: mockbifast
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_SSL_MODE: disable
+      DB_MAX_CONNS: 25
+      DB_MIN_CONNS: 5
+      DB_MAX_CONN_LIFETIME: 1h
+      DB_MAX_CONN_IDLE_TIME: 30m
+      
+      RATE_LIMIT_ENABLED: true
+      RATE_LIMIT_RPM: 1000
+      
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-your-secure-admin-token-change-in-production}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mockbifast-network
+
+  # PgAdmin (Optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mockbifast-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@mockbifast.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - mockbifast-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  mockbifast-network:
+    driver: bridge
