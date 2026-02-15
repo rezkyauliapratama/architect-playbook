@@ -1,144 +1,46 @@
+// internal/config/config.go
 package config
 
 import (
-	"fmt"
-	"os"
-	"strconv"
-	"time"
-
-	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Environment  string
-	Version      string
-	LogLevel     string
-	Server       ServerConfig
-	Database     DatabaseConfig
-	RateLimit    RateLimitConfig
-	AdminToken   string
-	Notification NotificationConfig
+	ServerPort             string  `mapstructure:"SERVER_PORT"`
+	DatabaseURL            string  `mapstructure:"DATABASE_URL"`
+	Environment            string  `mapstructure:"ENVIRONMENT"`
+	LogLevel               string  `mapstructure:"LOG_LEVEL"`
+	MaxDBConnections       int     `mapstructure:"MAX_DB_CONNECTIONS"`
+	BiFastFee              float64 `mapstructure:"BIFAST_FEE"`
+	BiFastMaxAmount        float64 `mapstructure:"BIFAST_MAX_AMOUNT"`
+	BiFastMinAmount        float64 `mapstructure:"BIFAST_MIN_AMOUNT"`
+	BiFastSuccessRate      int     `mapstructure:"BIFAST_SUCCESS_RATE"`
+	NotificationServiceURL string  `mapstructure:"NOTIFICATION_SERVICE_URL"`
 }
 
-type ServerConfig struct {
-	Port         int
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-}
+func Load() (*Config, error) {
+	viper.SetConfigFile(".env")
+	viper.AutomaticEnv()
 
-type DatabaseConfig struct {
-	Host            string
-	Port            int
-	Name            string
-	User            string
-	Password        string
-	SSLMode         string
-	MaxConns        int
-	MinConns        int
-	MaxConnLifetime time.Duration
-	MaxConnIdleTime time.Duration
-	URL             string
-}
+	// Default values
+	viper.SetDefault("SERVER_PORT", "8080")
+	viper.SetDefault("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/mock_bifast?sslmode=disable")
+	viper.SetDefault("ENVIRONMENT", "development")
+	viper.SetDefault("LOG_LEVEL", "info")
+	viper.SetDefault("MAX_DB_CONNECTIONS", 20)
+	viper.SetDefault("BIFAST_FEE", 2500.0)
+	viper.SetDefault("BIFAST_MAX_AMOUNT", 250000000.0)
+	viper.SetDefault("BIFAST_MIN_AMOUNT", 10000.0)
+	viper.SetDefault("BIFAST_SUCCESS_RATE", 98)
+	viper.SetDefault("NOTIFICATION_SERVICE_URL", "http://localhost:8081")
 
-type RateLimitConfig struct {
-	RequestsPerMinute int
-	Enabled           bool
-}
+	// Read config file if it exists, but continue if not found
+	_ = viper.ReadInConfig()
 
-type NotificationConfig struct {
-	Enabled bool
-	BaseURL string
-	APIKey  string
-	Timeout time.Duration
-}
-
-// Load loads configuration from environment variables
-func Load() *Config {
-	// Load .env file if exists (ignored in production)
-	_ = godotenv.Load()
-
-	// Build database config
-	dbConfig := DatabaseConfig{
-		Host:            getEnv("DB_HOST", "localhost"),
-		Port:            getEnvAsInt("DB_PORT", 5432),
-		Name:            getEnv("DB_NAME", "mockbifast"),
-		User:            getEnv("DB_USER", "postgres"),
-		Password:        getEnv("DB_PASSWORD", "postgres"),
-		SSLMode:         getEnv("DB_SSL_MODE", "disable"),
-		MaxConns:        getEnvAsInt("DB_MAX_CONNS", 25),
-		MinConns:        getEnvAsInt("DB_MIN_CONNS", 5),
-		MaxConnLifetime: getEnvAsDuration("DB_MAX_CONN_LIFETIME", "1h"),
-		MaxConnIdleTime: getEnvAsDuration("DB_MAX_CONN_IDLE_TIME", "30m"),
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, err
 	}
 
-	// Build connection URL
-	dbConfig.URL = fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		dbConfig.User,
-		dbConfig.Password,
-		dbConfig.Host,
-		dbConfig.Port,
-		dbConfig.Name,
-		dbConfig.SSLMode,
-	)
-
-	// Allow override via DB_URL env
-	if dbURL := getEnv("DB_URL", ""); dbURL != "" {
-		dbConfig.URL = dbURL
-	}
-
-	return &Config{
-		Environment: getEnv("ENVIRONMENT", "development"),
-		Version:     getEnv("VERSION", "1.0.0"),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
-		Server: ServerConfig{
-			Port:         getEnvAsInt("SERVER_PORT", 8080),
-			ReadTimeout:  getEnvAsDuration("SERVER_READ_TIMEOUT", "30s"),
-			WriteTimeout: getEnvAsDuration("SERVER_WRITE_TIMEOUT", "30s"),
-		},
-		Database: dbConfig,
-		RateLimit: RateLimitConfig{
-			RequestsPerMinute: getEnvAsInt("RATE_LIMIT_RPM", 1000),
-			Enabled:           getEnvAsBool("RATE_LIMIT_ENABLED", true),
-		},
-		AdminToken: getEnv("ADMIN_TOKEN", "admin-secret-token-change-in-production"),
-		Notification: NotificationConfig{
-			Enabled: getEnvAsBool("NOTIFICATION_ENABLED", false),
-			BaseURL: getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8082"),
-			APIKey:  getEnv("NOTIFICATION_API_KEY", ""),
-			Timeout: getEnvAsDuration("NOTIFICATION_TIMEOUT", "10s"),
-		},
-	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	valueStr := getEnv(key, "")
-	if value, err := strconv.Atoi(valueStr); err == nil {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsBool(key string, defaultValue bool) bool {
-	valueStr := getEnv(key, "")
-	if value, err := strconv.ParseBool(valueStr); err == nil {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsDuration(key string, defaultValue string) time.Duration {
-	valueStr := getEnv(key, defaultValue)
-	if duration, err := time.ParseDuration(valueStr); err == nil {
-		return duration
-	}
-	duration, _ := time.ParseDuration(defaultValue)
-	return duration
+	return &config, nil
 }
