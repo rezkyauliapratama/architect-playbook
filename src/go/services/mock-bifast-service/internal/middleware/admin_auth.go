@@ -1,3 +1,4 @@
+// internal/middleware/admin_auth.go
 package middleware
 
 import (
@@ -10,6 +11,7 @@ import (
 )
 
 // AdminAuth middleware validates admin authentication
+// NOTE: This is service-specific and uses dto.ErrorResponse
 func AdminAuth(adminToken string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Get authorization header
