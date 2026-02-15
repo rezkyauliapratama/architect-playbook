@@ -10,12 +10,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/client"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/config"
@@ -25,197 +22,181 @@ import (
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/service"
 )
 
+// ... (keep existing imports and setup code)
+
 func main() {
 	// Load configuration
 	cfg := config.Load()
 
 	// Setup logger
-	setupLogger(cfg.LogLevel)
-
+	log := setupLogger(cfg.LogLevel)
 	log.Info().
 		Str("environment", cfg.Environment).
 		Str("version", cfg.Version).
+		Int("port", cfg.Server.Port).
 		Msg("Starting Mock BI-FAST Service")
 
-	// Initialize database connection
-	db, err := initDatabase(cfg.Database)
+	// Connect to database
+	db, err := connectDatabase(cfg.Database, log)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize database")
+		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 	defer db.Close()
 
-	log.Info().Msg("Database connection established")
-
 	// Initialize repositories
-	txnRepo := repository.NewTransactionRepository(db, log.Logger)
-	accRepo := repository.NewAccountRepository(db, log.Logger)
+	txnRepo := repository.NewTransactionRepository(db, log)
+	accRepo := repository.NewAccountRepository(db, log)
 
 	// Initialize notification client
-	notificationClient := client.NewNotificationClient(
-		client.NotificationClientConfig{
-			BaseURL: cfg.Notification.BaseURL,
-			APIKey:  cfg.Notification.APIKey,
-			Timeout: cfg.Notification.Timeout,
-			Enabled: cfg.Notification.Enabled,
-		},
-		log.Logger,
-	)
-	defer notificationClient.Close()
+	notificationClient := client.NewNotificationClient(client.NotificationClientConfig{
+		BaseURL: cfg.Notification.BaseURL,
+		APIKey:  cfg.Notification.APIKey,
+		Timeout: cfg.Notification.Timeout,
+		Enabled: cfg.Notification.Enabled,
+	}, log)
 
-	// Initialize service
-	bifastService := service.NewBiFastService(txnRepo, accRepo, notificationClient, log.Logger)
+	// Initialize service with BI-FAST config - UPDATED
+	bifastService := service.NewBiFastService(
+		txnRepo,
+		accRepo,
+		notificationClient,
+		cfg.BiFast, // NEW: Pass BI-FAST config
+		log,
+	)
 
 	// Initialize handler
-	bifastHandler := handler.NewBiFastHandler(bifastService, log.Logger)
+	bifastHandler := handler.NewBiFastHandler(bifastService, log)
 
-	// Create Fiber app
+	// Setup Fiber app
 	app := fiber.New(fiber.Config{
-		AppName:               "Mock BI-FAST Service",
-		ReadTimeout:           cfg.Server.ReadTimeout,
-		WriteTimeout:          cfg.Server.WriteTimeout,
-		DisableStartupMessage: false,
-		ErrorHandler:          middleware.ErrorHandler(log.Logger),
+		ErrorHandler: middleware.ErrorHandler(log),
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
 	})
 
-	// Global middleware
+	// Middleware
 	app.Use(recover.New())
-	app.Use(requestid.New())
-	app.Use(logger.New(logger.Config{
-		Format: "${time} | ${status} | ${latency} | ${method} ${path}\n",
-	}))
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
-		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-Request-ID,X-Idempotency-Key",
-	}))
-
-	// Rate limiter
+	app.Use(cors.New())
 	app.Use(middleware.RateLimiter(cfg.RateLimit))
 
-	// Health check endpoint
+	// Health check - UPDATED to show config
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"status":      "healthy",
-			"service":     "mock-bifast-service",
-			"version":     cfg.Version,
-			"environment": cfg.Environment,
-			"timestamp":   time.Now().Format(time.RFC3339),
+			"status":  "healthy",
+			"service": "mock-bifast-service",
+			"version": cfg.Version,
+			"config": fiber.Map{
+				"fee":         cfg.BiFast.Fee,
+				"maxAmount":   cfg.BiFast.MaxAmount,
+				"minAmount":   cfg.BiFast.MinAmount,
+				"successRate": cfg.BiFast.SuccessRate,
+			},
 		})
 	})
 
 	// API routes
 	api := app.Group("/api/v1")
 
-	// Public endpoints
-	api.Post("/account-inquiry", bifastHandler.AccountInquiry)
-	api.Post("/transfer", bifastHandler.BiFastTransfer)
-	api.Get("/transaction/:transactionId", bifastHandler.TransactionStatus)
+	// BI-FAST routes
+	bifast := api.Group("/bifast")
+	bifast.Post("/account-inquiry", bifastHandler.AccountInquiry)
+	bifast.Post("/transfer", bifastHandler.BiFastTransfer)
+	bifast.Get("/transactions/:transactionId", bifastHandler.TransactionStatus)
 
-	// Admin endpoints (protected)
+	// Admin routes (protected)
 	admin := api.Group("/admin", middleware.AdminAuth(cfg.AdminToken))
 	admin.Get("/transactions", bifastHandler.ListTransactions)
 	admin.Get("/statistics", bifastHandler.GetStatistics)
-	admin.Delete("/transaction/:transactionId", bifastHandler.DeleteTransaction)
-	admin.Delete("/reset", bifastHandler.ResetAll)
+	admin.Delete("/transactions/:transactionId", bifastHandler.DeleteTransaction)
+	admin.Delete("/transactions", bifastHandler.ResetAll)
 
-	// Documentation endpoint
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"service":     "Mock BI-FAST Service",
-			"version":     cfg.Version,
-			"description": "Mock implementation of Bank Indonesia FAST payment system for testing and development",
-			"endpoints": fiber.Map{
-				"health":          "GET /health",
-				"accountInquiry":  "POST /api/v1/account-inquiry",
-				"transfer":        "POST /api/v1/transfer",
-				"transactionInfo": "GET /api/v1/transaction/:transactionId",
-				"admin": fiber.Map{
-					"listTransactions":  "GET /api/v1/admin/transactions",
-					"statistics":        "GET /api/v1/admin/statistics",
-					"deleteTransaction": "DELETE /api/v1/admin/transaction/:transactionId",
-					"resetAll":          "DELETE /api/v1/admin/reset",
-				},
-			},
-			"documentation": "https://github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service",
-		})
-	})
+	// Start server - UPDATED log message
+	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
+	log.Info().
+		Str("address", serverAddr).
+		Float64("fee", cfg.BiFast.Fee).
+		Float64("maxAmount", cfg.BiFast.MaxAmount).
+		Float64("minAmount", cfg.BiFast.MinAmount).
+		Int("successRate", cfg.BiFast.SuccessRate).
+		Msg("Server starting with BI-FAST configuration")
 
-	// Start server in goroutine
+	// Graceful shutdown
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Server.Port)
-		log.Info().
-			Int("port", cfg.Server.Port).
-			Str("address", addr).
-			Msg("Server starting")
-
-		if err := app.Listen(addr); err != nil {
+		if err := app.Listen(serverAddr); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start server")
 		}
 	}()
 
-	// Graceful shutdown
+	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	log.Info().Msg("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := app.ShutdownWithContext(ctx); err != nil {
 		log.Error().Err(err).Msg("Server forced to shutdown")
 	}
 
-	log.Info().Msg("Server exited gracefully")
+	log.Info().Msg("Server stopped")
 }
 
-func setupLogger(level string) {
-	// Set log level
-	zerolog.TimeFieldFormat = time.RFC3339
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+// ... (keep existing setupLogger and connectDatabase functions)
 
+func setupLogger(level string) zerolog.Logger {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	var logLevel zerolog.Level
 	switch level {
 	case "debug":
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		logLevel = zerolog.DebugLevel
+	case "info":
+		logLevel = zerolog.InfoLevel
 	case "warn":
-		zerolog.SetGlobalLevel(zerolog.WarnLevel)
+		logLevel = zerolog.WarnLevel
 	case "error":
-		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+		logLevel = zerolog.ErrorLevel
+	default:
+		logLevel = zerolog.InfoLevel
 	}
 
-	// Pretty logging for development
-	log.Logger = log.Output(zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: "15:04:05",
-	})
+	zerolog.SetGlobalLevel(logLevel)
+	return zerolog.New(os.Stdout).With().Timestamp().Logger()
 }
 
-func initDatabase(cfg config.DatabaseConfig) (*pgxpool.Pool, error) {
+func connectDatabase(cfg config.DatabaseConfig, log zerolog.Logger) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse database config: %w", err)
+		return nil, fmt.Errorf("unable to parse database URL: %w", err)
 	}
 
-	// Configure connection pool
 	poolConfig.MaxConns = int32(cfg.MaxConns)
 	poolConfig.MinConns = int32(cfg.MinConns)
 	poolConfig.MaxConnLifetime = cfg.MaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.MaxConnIdleTime
 
-	// Create connection pool
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create connection pool: %w", err)
 	}
 
-	// Test connection
 	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("unable to ping database: %w", err)
 	}
+
+	log.Info().
+		Str("host", cfg.Host).
+		Int("port", cfg.Port).
+		Str("database", cfg.Name).
+		Int("maxConns", cfg.MaxConns).
+		Msg("Database connected successfully")
 
 	return pool, nil
 }

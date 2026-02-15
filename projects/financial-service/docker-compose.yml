@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: postgres_multi_db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-root}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -17,7 +18,11 @@ services:
       - postgresql_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d bifast"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mailcatcher:
     image: schickling/mailcatcher

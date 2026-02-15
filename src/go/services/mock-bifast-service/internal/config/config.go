@@ -18,6 +18,7 @@ type Config struct {
 	RateLimit    RateLimitConfig
 	AdminToken   string
 	Notification NotificationConfig
+	BiFast       BiFastConfig // NEW: BI-FAST specific configuration
 }
 
 type ServerConfig struct {
@@ -50,6 +51,14 @@ type NotificationConfig struct {
 	BaseURL string
 	APIKey  string
 	Timeout time.Duration
+}
+
+// BiFastConfig holds BI-FAST specific configuration
+type BiFastConfig struct {
+	Fee         float64 // Transfer fee in IDR
+	MaxAmount   float64 // Maximum transfer amount in IDR
+	MinAmount   float64 // Minimum transfer amount in IDR
+	SuccessRate int     // Success rate percentage (0-100) for testing
 }
 
 // Load loads configuration from environment variables
@@ -108,6 +117,13 @@ func Load() *Config {
 			APIKey:  getEnv("NOTIFICATION_API_KEY", ""),
 			Timeout: getEnvAsDuration("NOTIFICATION_TIMEOUT", "10s"),
 		},
+		// NEW: BI-FAST configuration
+		BiFast: BiFastConfig{
+			Fee:         getEnvAsFloat("BIFAST_FEE", 2500.0),
+			MaxAmount:   getEnvAsFloat("BIFAST_MAX_AMOUNT", 250000000.0),
+			MinAmount:   getEnvAsFloat("BIFAST_MIN_AMOUNT", 10000.0),
+			SuccessRate: getEnvAsInt("BIFAST_SUCCESS_RATE", 98),
+		},
 	}
 }
 
@@ -141,4 +157,13 @@ func getEnvAsDuration(key string, defaultValue string) time.Duration {
 	}
 	duration, _ := time.ParseDuration(defaultValue)
 	return duration
+}
+
+// NEW: Helper function to get float environment variables
+func getEnvAsFloat(key string, defaultValue float64) float64 {
+	valueStr := getEnv(key, "")
+	if value, err := strconv.ParseFloat(valueStr, 64); err == nil {
+		return value
+	}
+	return defaultValue
 }

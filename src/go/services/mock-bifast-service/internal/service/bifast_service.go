@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/client"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/config"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/dto"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/repository"
@@ -43,6 +44,7 @@ type biFastService struct {
 	txnRepo        repository.TransactionRepository
 	accRepo        repository.AccountRepository
 	notificationCl *client.NotificationClient
+	bifastConfig   config.BiFastConfig // NEW: Store BI-FAST config
 	logger         zerolog.Logger
 	rand           *rand.Rand
 }
@@ -52,12 +54,14 @@ func NewBiFastService(
 	txnRepo repository.TransactionRepository,
 	accRepo repository.AccountRepository,
 	notificationCl *client.NotificationClient,
+	bifastConfig config.BiFastConfig, // NEW: Accept BI-FAST config
 	log zerolog.Logger,
 ) BiFastService {
 	return &biFastService{
 		txnRepo:        txnRepo,
 		accRepo:        accRepo,
 		notificationCl: notificationCl,
+		bifastConfig:   bifastConfig, // NEW: Store config
 		logger:         log,
 		rand:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
@@ -106,6 +110,43 @@ func (s *biFastService) BiFastTransfer(ctx context.Context, req *dto.TransferReq
 		Str("destAccount", req.DestAccountNumber).
 		Msg("Initiating BI-FAST transfer")
 
+	// NEW: Validate amount against configured limits
+	amount, err := dto.ParseAmount(req.Amount)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Invalid amount format")
+		return &dto.TransferResponse{
+			ResponseCode: dto.ResponseCodeInvalidAmount,
+			ResponseMsg:  "Invalid amount format",
+			ReferenceID:  req.ReferenceID,
+		}, nil
+	}
+
+	// NEW: Check minimum amount
+	if amount < s.bifastConfig.MinAmount {
+		s.logger.Warn().
+			Float64("amount", amount).
+			Float64("minAmount", s.bifastConfig.MinAmount).
+			Msg("Amount below minimum limit")
+		return &dto.TransferResponse{
+			ResponseCode: dto.ResponseCodeInvalidAmount,
+			ResponseMsg:  fmt.Sprintf("Amount below BI-FAST minimum of Rp %.2f", s.bifastConfig.MinAmount),
+			ReferenceID:  req.ReferenceID,
+		}, nil
+	}
+
+	// NEW: Check maximum amount
+	if amount > s.bifastConfig.MaxAmount {
+		s.logger.Warn().
+			Float64("amount", amount).
+			Float64("maxAmount", s.bifastConfig.MaxAmount).
+			Msg("Amount exceeds maximum limit")
+		return &dto.TransferResponse{
+			ResponseCode: dto.ResponseCodeInvalidAmount,
+			ResponseMsg:  fmt.Sprintf("Amount exceeds BI-FAST maximum of Rp %.2f", s.bifastConfig.MaxAmount),
+			ReferenceID:  req.ReferenceID,
+		}, nil
+	}
+
 	// Validate source account
 	sourceAccount, err := s.accRepo.GetAccount(ctx, req.SourceBankCode, req.SourceAccountNumber)
 	if err != nil {
@@ -141,8 +182,8 @@ func (s *biFastService) BiFastTransfer(ctx context.Context, req *dto.TransferReq
 	// Generate transaction ID
 	transactionID := fmt.Sprintf("BIFAST-%s", uuid.New().String())
 
-	// Calculate fee (flat fee of IDR 2,500 for this mock)
-	fee := "2500.00"
+	// NEW: Use configured fee
+	fee := fmt.Sprintf("%.2f", s.bifastConfig.Fee)
 
 	// Create transaction record
 	transaction := &models.Transaction{
@@ -191,15 +232,33 @@ func (s *biFastService) BiFastTransfer(ctx context.Context, req *dto.TransferReq
 			nil,
 		)
 
-		// Complete after 500ms
+		// Complete after 500ms with success rate logic
 		time.Sleep(500 * time.Millisecond)
+
+		// NEW: Apply success rate for testing
+		isSuccess := s.rand.Intn(100) < s.bifastConfig.SuccessRate
+
 		completedAt := time.Now()
+		var finalStatus models.TransactionStatus
+		var responseCode string
+		var responseMsg string
+
+		if isSuccess {
+			finalStatus = models.StatusCompleted
+			responseCode = dto.ResponseCodeSuccess
+			responseMsg = dto.GetResponseMessage(dto.ResponseCodeSuccess)
+		} else {
+			finalStatus = models.StatusFailed
+			responseCode = dto.ResponseCodeSystemError
+			responseMsg = "Transaction failed (simulated failure for testing)"
+		}
+
 		s.txnRepo.UpdateStatus(
 			context.Background(),
 			transactionID,
-			models.StatusCompleted,
-			dto.ResponseCodeSuccess,
-			dto.GetResponseMessage(dto.ResponseCodeSuccess),
+			finalStatus,
+			responseCode,
+			responseMsg,
 			&completedAt,
 		)
 
@@ -229,7 +288,8 @@ func (s *biFastService) BiFastTransfer(ctx context.Context, req *dto.TransferReq
 		s.logger.Info().
 			Str("transactionId", transactionID).
 			Str("amount", req.Amount).
-			Msg("Transfer completed successfully")
+			Bool("success", isSuccess).
+			Msg("Transfer processing completed")
 	}()
 
 	// Return immediate response
