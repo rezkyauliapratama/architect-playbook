@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
-	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -34,9 +34,19 @@ func main() {
 	}
 
 	// Setup logger
-	logger.Initialize(logger.Config{LogLevel: cfg.LogLevel,
-		IsProduction: cfg.Environment != "development"})
+	logger.Initialize(logger.Config{
+		LogLevel:     cfg.LogLevel,
+		IsProduction: cfg.Environment != "development",
+		ServiceName:  "notification-service",
+		Version:      "1.0.0",
+	})
 	log := logger.Get()
+
+	log.InfoContext("Starting Notification Service", map[string]interface{}{
+		"environment": cfg.Environment,
+		"logLevel":    cfg.LogLevel,
+		"port":        cfg.ServerPort,
+	})
 
 	// Optimize for CPU usage
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -53,6 +63,10 @@ func main() {
 	db.SetMaxIdleConns(cfg.MaxDBConnections / 2)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
+	log.InfoContext("Database connected", map[string]interface{}{
+		"maxConnections": cfg.MaxDBConnections,
+	})
+
 	// Initialize dependencies
 	apiClient := client.NewAPIClient(cfg)
 	emailClient := client.NewEmailClient(cfg)
@@ -68,13 +82,15 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 		BodyLimit:    1 * 1024 * 1024, // 1MB limit
 		Concurrency:  256 * 1024,      // High concurrency
+		ErrorHandler: createErrorHandler(log),
 	})
 
 	// Add middleware
 	app.Use(recover.New())
-	app.Use(cors.New())
-	app.Use(compress.New()) // Compress responses for better performance
-	app.Use(middleware.FiberMiddleware())
+	app.Use(middleware.RequestID())
+	app.Use(middleware.LoggingMiddleware())
+	app.Use(middleware.CORS())
+	app.Use(compress.New())
 
 	// Set up routes
 	api := app.Group("/api/v1")
@@ -86,8 +102,9 @@ func main() {
 	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status": "UP",
-			"time":   time.Now().Format(time.RFC3339),
+			"status":  "UP",
+			"service": "notification-service",
+			"time":    time.Now().Format(time.RFC3339),
 		})
 	})
 
@@ -96,19 +113,29 @@ func main() {
 		ticker := time.NewTicker(cfg.WorkerInterval)
 		defer ticker.Stop()
 
+		log.InfoContext("Background worker started", map[string]interface{}{
+			"interval": cfg.WorkerInterval.String(),
+		})
+
 		for range ticker.C {
-			notificationService.ProcessPendingNotifications()
+			notificationService.ProcessPendingNotifications() // ✅ FIXED: No error return
 		}
 	}()
 
 	// Start server
+	serverAddr := ":" + cfg.ServerPort
 	go func() {
-		if err := app.Listen(":" + cfg.ServerPort); err != nil {
+		log.InfoContext("Server starting", map[string]interface{}{
+			"address": serverAddr,
+		})
+		if err := app.Listen(serverAddr); err != nil {
 			log.Fatal("Failed to start server", err)
 		}
 	}()
 
-	log.Info(fmt.Sprint("Server started on port %s", cfg.ServerPort))
+	log.InfoContext("Server started successfully", map[string]interface{}{
+		"port": cfg.ServerPort,
+	})
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
@@ -116,5 +143,37 @@ func main() {
 	<-quit
 
 	log.Info("Shutting down server...")
-	app.Shutdown()
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(ctx); err != nil {
+		log.ErrorContext("Server forced to shutdown", err, nil)
+	}
+
+	log.Info("Server stopped gracefully")
+}
+
+// createErrorHandler creates a custom error handler for Fiber
+func createErrorHandler(log *logger.Logger) fiber.ErrorHandler {
+	return func(c *fiber.Ctx, err error) error {
+		code := fiber.StatusInternalServerError
+
+		if e, ok := err.(*fiber.Error); ok {
+			code = e.Code
+		}
+
+		log.ErrorContext("Request error", err, map[string]interface{}{
+			"status": code,
+			"method": c.Method(),
+			"path":   c.Path(),
+			"ip":     c.IP(),
+		})
+
+		return c.Status(code).JSON(fiber.Map{
+			"error":   true,
+			"message": err.Error(),
+		})
+	}
 }

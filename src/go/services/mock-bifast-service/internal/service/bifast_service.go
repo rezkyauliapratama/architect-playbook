@@ -389,11 +389,16 @@ func (s *biFastService) ListTransactions(ctx context.Context, page, limit int) (
 	// Recalculate offset with validated values
 	offset = (validatedPage - 1) * validatedLimit
 
-	// ✅ Use FindAll method
+	// Use FindAll method
 	transactions, total, err := s.txnRepo.FindAll(ctx, validatedLimit, offset)
 	if err != nil {
 		s.logger.Error("Failed to list transactions", err)
 		return nil, fmt.Errorf("failed to list transactions: %w", err)
+	}
+
+	transactionItems := make([]*dto.TransactionItem, len(transactions))
+	for i, txn := range transactions {
+		transactionItems[i] = dto.ConvertFromModel(txn)
 	}
 
 	// Calculate total pages (ceiling division)
@@ -405,7 +410,7 @@ func (s *biFastService) ListTransactions(ctx context.Context, page, limit int) (
 	// Build response
 	return &dto.TransactionListResponse{
 		Success: true,
-		Data:    transactions,
+		Data:    transactionItems,
 		Pagination: dto.PaginationMeta{
 			Page:       validatedPage,
 			Limit:      validatedLimit,

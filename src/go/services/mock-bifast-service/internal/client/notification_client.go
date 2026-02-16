@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/client/notification_client.go
 package client
 
 import (
@@ -8,8 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rs/zerolog"
-
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 )
 
@@ -18,7 +18,7 @@ type NotificationClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
-	logger     zerolog.Logger
+	logger     *logger.Logger // ✅ Changed from zerolog.Logger
 	enabled    bool
 }
 
@@ -57,7 +57,7 @@ type NotificationResponse struct {
 }
 
 // NewNotificationClient creates a new notification client
-func NewNotificationClient(cfg NotificationClientConfig, log zerolog.Logger) *NotificationClient {
+func NewNotificationClient(cfg NotificationClientConfig, log *logger.Logger) *NotificationClient {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 10 * time.Second
 	}
@@ -78,12 +78,12 @@ func NewNotificationClient(cfg NotificationClientConfig, log zerolog.Logger) *No
 	}
 
 	if cfg.Enabled {
-		log.Info().
-			Str("baseURL", cfg.BaseURL).
-			Dur("timeout", cfg.Timeout).
-			Msg("Notification client initialized")
+		log.InfoContext("Notification client initialized", map[string]interface{}{
+			"baseURL": cfg.BaseURL,
+			"timeout": cfg.Timeout.String(),
+		})
 	} else {
-		log.Info().Msg("Notification client disabled")
+		log.Info("Notification client disabled")
 	}
 
 	return client
@@ -92,9 +92,9 @@ func NewNotificationClient(cfg NotificationClientConfig, log zerolog.Logger) *No
 // SendTransactionNotification sends transaction notification
 func (c *NotificationClient) SendTransactionNotification(ctx context.Context, txn *models.Transaction) error {
 	if !c.enabled {
-		c.logger.Debug().
-			Str("transactionId", txn.TransactionID).
-			Msg("Notification client disabled, skipping notification")
+		c.logger.DebugContext("Notification client disabled, skipping notification", map[string]interface{}{
+			"transactionId": txn.TransactionID,
+		})
 		return nil
 	}
 
@@ -170,7 +170,9 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 	// Marshal payload
 	body, err := json.Marshal(payload)
 	if err != nil {
-		c.logger.Error().Err(err).Msg("Failed to marshal notification payload")
+		c.logger.ErrorContext("Failed to marshal notification payload", err, map[string]interface{}{
+			"type": payload.Type,
+		})
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
@@ -178,7 +180,10 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 	url := fmt.Sprintf("%s/api/v1/notifications", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
-		c.logger.Error().Err(err).Msg("Failed to create notification request")
+		c.logger.ErrorContext("Failed to create notification request", err, map[string]interface{}{
+			"url":  url,
+			"type": payload.Type,
+		})
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -194,7 +199,10 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 	startTime := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Error().Err(err).Str("url", url).Msg("Failed to send notification")
+		c.logger.ErrorContext("Failed to send notification", err, map[string]interface{}{
+			"url":  url,
+			"type": payload.Type,
+		})
 		return fmt.Errorf("failed to send notification: %w", err)
 	}
 	defer resp.Body.Close()
@@ -204,32 +212,37 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 	// Parse response
 	var notifResp NotificationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&notifResp); err != nil {
-		c.logger.Warn().Err(err).Msg("Failed to parse notification response")
+		c.logger.WarnContext("Failed to parse notification response", map[string]interface{}{
+			"error":      err.Error(),
+			"statusCode": resp.StatusCode,
+			"type":       payload.Type,
+		})
 		// Don't return error, just log
 	}
 
 	// Check status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.logger.Error().
-			Int("statusCode", resp.StatusCode).
-			Str("type", payload.Type).
-			Msg("Notification service returned error")
-		return fmt.Errorf("notification failed with status %d", resp.StatusCode)
+		c.logger.ErrorContext("Notification service returned error", nil, map[string]interface{}{
+			"statusCode": resp.StatusCode,
+			"type":       payload.Type,
+			"message":    notifResp.Message,
+		})
+		return fmt.Errorf("notification failed with status %d: %s", resp.StatusCode, notifResp.Message)
 	}
 
-	c.logger.Info().
-		Str("type", payload.Type).
-		Str("notificationId", notifResp.NotificationID).
-		Dur("duration", duration).
-		Int("statusCode", resp.StatusCode).
-		Msg("Notification sent successfully")
+	c.logger.InfoContext("Notification sent successfully", map[string]interface{}{
+		"type":           payload.Type,
+		"notificationId": notifResp.NotificationID,
+		"duration":       duration.String(),
+		"statusCode":     resp.StatusCode,
+	})
 
 	return nil
 }
 
 // Close closes the HTTP client connections
 func (c *NotificationClient) Close() error {
-	c.logger.Info().Msg("Closing notification client")
+	c.logger.Info("Closing notification client")
 	c.httpClient.CloseIdleConnections()
 	return nil
 }

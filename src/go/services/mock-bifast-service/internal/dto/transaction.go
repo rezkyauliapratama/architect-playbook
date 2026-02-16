@@ -89,6 +89,7 @@ type TransactionListResponse struct {
 }
 
 // PaginationMeta represents pagination metadata
+// PaginationMeta represents pagination metadata
 type PaginationMeta struct {
 	Page       int `json:"page"`
 	Limit      int `json:"limit"`

@@ -38,11 +38,11 @@ type Transaction struct {
 // TransactionStatistics represents transaction statistics
 type TransactionStatistics struct {
 	TotalTransactions int    `json:"totalTransactions"`
-	SuccessCount      int    `json:"successCount"`   // NEW: Alias for CompletedCount
-	CompletedCount    int    `json:"completedCount"` // Kept for backward compatibility
+	SuccessCount      int    `json:"successCount"`
+	CompletedCount    int    `json:"completedCount"`
 	FailedCount       int    `json:"failedCount"`
 	PendingCount      int    `json:"pendingCount"`
-	ProcessingCount   int    `json:"processingCount"` // NEW: For PROCESSING status
+	ProcessingCount   int    `json:"processingCount"`
 	TotalAmount       string `json:"totalAmount"`
 	TotalFee          string `json:"totalFee"`
 }

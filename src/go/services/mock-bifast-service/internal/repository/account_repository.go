@@ -23,7 +23,7 @@ type AccountRepository interface {
 
 type accountRepository struct {
 	db     *pgxpool.Pool
-	logger *logger.Logger // ✅ Use libs/logger
+	logger *logger.Logger
 }
 
 // NewAccountRepository creates a new account repository instance
@@ -38,7 +38,6 @@ func NewAccountRepository(db *pgxpool.Pool, log *logger.Logger) AccountRepositor
 func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNumber string) (*models.Account, error) {
 	query := `
 		SELECT 
-			id,
 			bank_code,
 			account_number,
 			account_name,
@@ -55,7 +54,6 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 	var account models.Account
 
 	err := r.db.QueryRow(ctx, query, bankCode, accountNumber).Scan(
-		&account.ID,
 		&account.BankCode,
 		&account.AccountNumber,
 		&account.AccountName,
@@ -69,7 +67,6 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// ✅ Use WarnContext for expected "not found" scenarios
 			r.logger.WarnContext("Account not found", map[string]interface{}{
 				"bankCode":      bankCode,
 				"accountNumber": accountNumber,
@@ -77,7 +74,6 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 			return nil, fmt.Errorf("account not found")
 		}
 
-		// ✅ Use ErrorContext for unexpected database errors
 		r.logger.ErrorContext("Failed to fetch account", err, map[string]interface{}{
 			"bankCode":      bankCode,
 			"accountNumber": accountNumber,
@@ -85,7 +81,6 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 		return nil, fmt.Errorf("failed to fetch account: %w", err)
 	}
 
-	// ✅ Use InfoContext for successful retrieval (optional, can be debug in production)
 	r.logger.InfoContext("Account retrieved successfully", map[string]interface{}{
 		"bankCode":      bankCode,
 		"accountNumber": accountNumber,
@@ -99,7 +94,6 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 func (r *accountRepository) CreateAccount(ctx context.Context, account *models.Account) error {
 	query := `
 		INSERT INTO accounts (
-			id,
 			bank_code,
 			account_number,
 			account_name,
@@ -110,12 +104,11 @@ func (r *accountRepository) CreateAccount(ctx context.Context, account *models.A
 			created_at,
 			updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		)
 	`
 
 	_, err := r.db.Exec(ctx, query,
-		account.ID,
 		account.BankCode,
 		account.AccountNumber,
 		account.AccountName,
@@ -128,18 +121,15 @@ func (r *accountRepository) CreateAccount(ctx context.Context, account *models.A
 	)
 
 	if err != nil {
-		// ✅ Use ErrorContext with all relevant fields
 		r.logger.ErrorContext("Failed to create account", err, map[string]interface{}{
-			"id":            account.ID,
 			"bankCode":      account.BankCode,
 			"accountNumber": account.AccountNumber,
+			"accountName":   account.AccountName,
 		})
 		return fmt.Errorf("failed to create account: %w", err)
 	}
 
-	// ✅ Use InfoContext for successful creation
 	r.logger.InfoContext("Account created successfully", map[string]interface{}{
-		"id":            account.ID,
 		"bankCode":      account.BankCode,
 		"accountNumber": account.AccountNumber,
 		"accountName":   account.AccountName,
@@ -192,13 +182,11 @@ func (r *accountRepository) ListAccounts(ctx context.Context, bankCode string, l
 	var countArgs, queryArgs []interface{}
 
 	if bankCode != "" {
-		// Filter by bank code
 		countQuery = `SELECT COUNT(*) FROM accounts WHERE bank_code = $1`
 		countArgs = []interface{}{bankCode}
 
 		query = `
 			SELECT 
-				id,
 				bank_code,
 				account_number,
 				account_name,
@@ -215,13 +203,11 @@ func (r *accountRepository) ListAccounts(ctx context.Context, bankCode string, l
 		`
 		queryArgs = []interface{}{bankCode, limit, offset}
 	} else {
-		// Get all accounts
 		countQuery = `SELECT COUNT(*) FROM accounts`
 		countArgs = []interface{}{}
 
 		query = `
 			SELECT 
-				id,
 				bank_code,
 				account_number,
 				account_name,
@@ -263,7 +249,6 @@ func (r *accountRepository) ListAccounts(ctx context.Context, bankCode string, l
 	for rows.Next() {
 		var account models.Account
 		err := rows.Scan(
-			&account.ID,
 			&account.BankCode,
 			&account.AccountNumber,
 			&account.AccountName,
