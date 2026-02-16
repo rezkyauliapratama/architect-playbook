@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/dto/validation.go
 package dto
 
 import (
@@ -10,8 +11,8 @@ import (
 )
 
 var (
-	// Bank code format: 8 uppercase alphanumeric characters
-	bankCodeRegex = regexp.MustCompile(`^[A-Z0-9]{8}$`)
+	// Bank code format: 3-8 alphanumeric characters (flexible for Indonesian banks)
+	bankCodeRegex = regexp.MustCompile(`^[A-Z0-9]{3,8}$`)
 
 	// Account number format: 1-50 alphanumeric characters
 	accountNumberRegex = regexp.MustCompile(`^[A-Z0-9]{1,50}$`)
@@ -38,7 +39,7 @@ func ValidateAccountInquiryRequest(req *AccountInquiryRequest) ValidationResult 
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "bankCode",
-			Message: "Bank code must be 8 uppercase alphanumeric characters",
+			Message: "Bank code must be 3-8 uppercase alphanumeric characters",
 		})
 	}
 
@@ -72,7 +73,7 @@ func ValidateTransferRequest(req *TransferRequest) ValidationResult {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "sourceBankCode",
-			Message: "Source bank code must be 8 uppercase alphanumeric characters",
+			Message: "Source bank code must be 3-8 uppercase alphanumeric characters",
 		})
 	}
 
@@ -90,7 +91,7 @@ func ValidateTransferRequest(req *TransferRequest) ValidationResult {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "destBankCode",
-			Message: "Destination bank code must be 8 uppercase alphanumeric characters",
+			Message: "Destination bank code must be 3-8 uppercase alphanumeric characters",
 		})
 	}
 

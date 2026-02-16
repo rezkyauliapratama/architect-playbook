@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/repository/account_repository.go
 package repository
 
 import (
@@ -6,54 +7,55 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 )
 
 // AccountRepository defines account data access methods
 type AccountRepository interface {
-	// GetAccount retrieves account by bank code and account number
 	GetAccount(ctx context.Context, bankCode, accountNumber string) (*models.Account, error)
-
-	// CreateAccount creates a new account
 	CreateAccount(ctx context.Context, account *models.Account) error
-
-	// UpdateAccount updates an existing account
-	UpdateAccount(ctx context.Context, account *models.Account) error
-
-	// DeleteAccount deletes an account
+	UpdateBalance(ctx context.Context, bankCode, accountNumber string, newBalance float64) error
+	ListAccounts(ctx context.Context, bankCode string, limit, offset int) ([]*models.Account, int, error)
 	DeleteAccount(ctx context.Context, bankCode, accountNumber string) error
-
-	// ListAccounts retrieves all accounts with pagination
-	ListAccounts(ctx context.Context, limit, offset int) ([]*models.Account, int, error)
 }
 
 type accountRepository struct {
 	db     *pgxpool.Pool
-	logger zerolog.Logger
+	logger *logger.Logger // ✅ Use libs/logger
 }
 
-// NewAccountRepository creates a new account repository
-func NewAccountRepository(db *pgxpool.Pool, logger zerolog.Logger) AccountRepository {
+// NewAccountRepository creates a new account repository instance
+func NewAccountRepository(db *pgxpool.Pool, log *logger.Logger) AccountRepository {
 	return &accountRepository{
 		db:     db,
-		logger: logger,
+		logger: log,
 	}
 }
 
-// GetAccount retrieves account by bank code and account number
+// GetAccount retrieves an account by bank code and account number
 func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNumber string) (*models.Account, error) {
 	query := `
-		SELECT bank_code, account_number, account_name, account_type,
-		       balance, currency, status, created_at, updated_at
+		SELECT 
+			id,
+			bank_code,
+			account_number,
+			account_name,
+			account_type,
+			balance,
+			currency,
+			status,
+			created_at,
+			updated_at
 		FROM accounts
-		WHERE bank_code = $1 AND account_number = $2
+		WHERE bank_code = $1 AND account_number = $2 AND status = 'ACTIVE'
 	`
 
 	var account models.Account
 
 	err := r.db.QueryRow(ctx, query, bankCode, accountNumber).Scan(
+		&account.ID,
 		&account.BankCode,
 		&account.AccountNumber,
 		&account.AccountName,
@@ -67,14 +69,28 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			// ✅ Use WarnContext for expected "not found" scenarios
+			r.logger.WarnContext("Account not found", map[string]interface{}{
+				"bankCode":      bankCode,
+				"accountNumber": accountNumber,
+			})
 			return nil, fmt.Errorf("account not found")
 		}
-		r.logger.Error().Err(err).
-			Str("bankCode", bankCode).
-			Str("accountNumber", accountNumber).
-			Msg("Failed to fetch account")
+
+		// ✅ Use ErrorContext for unexpected database errors
+		r.logger.ErrorContext("Failed to fetch account", err, map[string]interface{}{
+			"bankCode":      bankCode,
+			"accountNumber": accountNumber,
+		})
 		return nil, fmt.Errorf("failed to fetch account: %w", err)
 	}
+
+	// ✅ Use InfoContext for successful retrieval (optional, can be debug in production)
+	r.logger.InfoContext("Account retrieved successfully", map[string]interface{}{
+		"bankCode":      bankCode,
+		"accountNumber": accountNumber,
+		"accountName":   account.AccountName,
+	})
 
 	return &account, nil
 }
@@ -83,14 +99,23 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 func (r *accountRepository) CreateAccount(ctx context.Context, account *models.Account) error {
 	query := `
 		INSERT INTO accounts (
-			bank_code, account_number, account_name, account_type,
-			balance, currency, status, created_at, updated_at
+			id,
+			bank_code,
+			account_number,
+			account_name,
+			account_type,
+			balance,
+			currency,
+			status,
+			created_at,
+			updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 		)
 	`
 
 	_, err := r.db.Exec(ctx, query,
+		account.ID,
 		account.BankCode,
 		account.AccountNumber,
 		account.AccountName,
@@ -103,120 +128,142 @@ func (r *accountRepository) CreateAccount(ctx context.Context, account *models.A
 	)
 
 	if err != nil {
-		r.logger.Error().Err(err).
-			Str("bankCode", account.BankCode).
-			Str("accountNumber", account.AccountNumber).
-			Msg("Failed to create account")
+		// ✅ Use ErrorContext with all relevant fields
+		r.logger.ErrorContext("Failed to create account", err, map[string]interface{}{
+			"id":            account.ID,
+			"bankCode":      account.BankCode,
+			"accountNumber": account.AccountNumber,
+		})
 		return fmt.Errorf("failed to create account: %w", err)
 	}
 
-	r.logger.Info().
-		Str("bankCode", account.BankCode).
-		Str("accountNumber", account.AccountNumber).
-		Msg("Account created successfully")
+	// ✅ Use InfoContext for successful creation
+	r.logger.InfoContext("Account created successfully", map[string]interface{}{
+		"id":            account.ID,
+		"bankCode":      account.BankCode,
+		"accountNumber": account.AccountNumber,
+		"accountName":   account.AccountName,
+		"balance":       account.Balance,
+	})
+
 	return nil
 }
 
-// UpdateAccount updates an existing account
-func (r *accountRepository) UpdateAccount(ctx context.Context, account *models.Account) error {
+// UpdateBalance updates account balance
+func (r *accountRepository) UpdateBalance(ctx context.Context, bankCode, accountNumber string, newBalance float64) error {
 	query := `
 		UPDATE accounts
-		SET account_name = $1,
-		    account_type = $2,
-		    balance = $3,
-		    currency = $4,
-		    status = $5,
-		    updated_at = $6
-		WHERE bank_code = $7 AND account_number = $8
+		SET balance = $1,
+		    updated_at = NOW()
+		WHERE bank_code = $2 AND account_number = $3
 	`
 
-	result, err := r.db.Exec(ctx, query,
-		account.AccountName,
-		account.AccountType,
-		account.Balance,
-		account.Currency,
-		account.Status,
-		account.UpdatedAt,
-		account.BankCode,
-		account.AccountNumber,
-	)
-
+	result, err := r.db.Exec(ctx, query, newBalance, bankCode, accountNumber)
 	if err != nil {
-		r.logger.Error().Err(err).
-			Str("bankCode", account.BankCode).
-			Str("accountNumber", account.AccountNumber).
-			Msg("Failed to update account")
-		return fmt.Errorf("failed to update account: %w", err)
+		r.logger.ErrorContext("Failed to update account balance", err, map[string]interface{}{
+			"bankCode":      bankCode,
+			"accountNumber": accountNumber,
+			"newBalance":    newBalance,
+		})
+		return fmt.Errorf("failed to update account balance: %w", err)
 	}
 
 	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
+		r.logger.WarnContext("No account found to update", map[string]interface{}{
+			"bankCode":      bankCode,
+			"accountNumber": accountNumber,
+		})
 		return fmt.Errorf("account not found")
 	}
 
-	r.logger.Info().
-		Str("bankCode", account.BankCode).
-		Str("accountNumber", account.AccountNumber).
-		Msg("Account updated successfully")
+	r.logger.InfoContext("Account balance updated", map[string]interface{}{
+		"bankCode":      bankCode,
+		"accountNumber": accountNumber,
+		"newBalance":    newBalance,
+	})
+
 	return nil
 }
 
-// DeleteAccount deletes an account
-func (r *accountRepository) DeleteAccount(ctx context.Context, bankCode, accountNumber string) error {
-	query := `DELETE FROM accounts WHERE bank_code = $1 AND account_number = $2`
+// ListAccounts retrieves all accounts with optional bank code filter and pagination
+func (r *accountRepository) ListAccounts(ctx context.Context, bankCode string, limit, offset int) ([]*models.Account, int, error) {
+	var countQuery, query string
+	var countArgs, queryArgs []interface{}
 
-	result, err := r.db.Exec(ctx, query, bankCode, accountNumber)
-	if err != nil {
-		r.logger.Error().Err(err).
-			Str("bankCode", bankCode).
-			Str("accountNumber", accountNumber).
-			Msg("Failed to delete account")
-		return fmt.Errorf("failed to delete account: %w", err)
+	if bankCode != "" {
+		// Filter by bank code
+		countQuery = `SELECT COUNT(*) FROM accounts WHERE bank_code = $1`
+		countArgs = []interface{}{bankCode}
+
+		query = `
+			SELECT 
+				id,
+				bank_code,
+				account_number,
+				account_name,
+				account_type,
+				balance,
+				currency,
+				status,
+				created_at,
+				updated_at
+			FROM accounts
+			WHERE bank_code = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		queryArgs = []interface{}{bankCode, limit, offset}
+	} else {
+		// Get all accounts
+		countQuery = `SELECT COUNT(*) FROM accounts`
+		countArgs = []interface{}{}
+
+		query = `
+			SELECT 
+				id,
+				bank_code,
+				account_number,
+				account_name,
+				account_type,
+				balance,
+				currency,
+				status,
+				created_at,
+				updated_at
+			FROM accounts
+			ORDER BY created_at DESC
+			LIMIT $1 OFFSET $2
+		`
+		queryArgs = []interface{}{limit, offset}
 	}
 
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("account not found")
-	}
-
-	r.logger.Info().
-		Str("bankCode", bankCode).
-		Str("accountNumber", accountNumber).
-		Msg("Account deleted successfully")
-	return nil
-}
-
-// ListAccounts retrieves all accounts with pagination
-func (r *accountRepository) ListAccounts(ctx context.Context, limit, offset int) ([]*models.Account, int, error) {
 	// Get total count
 	var total int
-	countQuery := `SELECT COUNT(*) FROM accounts`
-	if err := r.db.QueryRow(ctx, countQuery).Scan(&total); err != nil {
-		r.logger.Error().Err(err).Msg("Failed to count accounts")
+	if err := r.db.QueryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		r.logger.ErrorContext("Failed to count accounts", err, map[string]interface{}{
+			"bankCode": bankCode,
+		})
 		return nil, 0, fmt.Errorf("failed to count accounts: %w", err)
 	}
 
 	// Get accounts
-	query := `
-		SELECT bank_code, account_number, account_name, account_type,
-		       balance, currency, status, created_at, updated_at
-		FROM accounts
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`
-
-	rows, err := r.db.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to fetch accounts")
-		return nil, 0, fmt.Errorf("failed to fetch accounts: %w", err)
+		r.logger.ErrorContext("Failed to list accounts", err, map[string]interface{}{
+			"bankCode": bankCode,
+			"limit":    limit,
+			"offset":   offset,
+		})
+		return nil, 0, fmt.Errorf("failed to list accounts: %w", err)
 	}
 	defer rows.Close()
 
 	accounts := make([]*models.Account, 0)
 	for rows.Next() {
 		var account models.Account
-
 		err := rows.Scan(
+			&account.ID,
 			&account.BankCode,
 			&account.AccountNumber,
 			&account.AccountName,
@@ -229,7 +276,9 @@ func (r *accountRepository) ListAccounts(ctx context.Context, limit, offset int)
 		)
 
 		if err != nil {
-			r.logger.Error().Err(err).Msg("Failed to scan account")
+			r.logger.ErrorContext("Failed to scan account row", err, map[string]interface{}{
+				"bankCode": bankCode,
+			})
 			continue
 		}
 
@@ -237,9 +286,54 @@ func (r *accountRepository) ListAccounts(ctx context.Context, limit, offset int)
 	}
 
 	if err := rows.Err(); err != nil {
-		r.logger.Error().Err(err).Msg("Error iterating accounts")
-		return nil, 0, fmt.Errorf("error iterating accounts: %w", err)
+		r.logger.ErrorContext("Error iterating account rows", err, map[string]interface{}{
+			"bankCode": bankCode,
+		})
+		return nil, 0, fmt.Errorf("error iterating account rows: %w", err)
 	}
 
+	r.logger.InfoContext("Accounts listed successfully", map[string]interface{}{
+		"bankCode":  bankCode,
+		"total":     total,
+		"retrieved": len(accounts),
+		"limit":     limit,
+		"offset":    offset,
+	})
+
 	return accounts, total, nil
+}
+
+// DeleteAccount deletes an account (soft delete by setting status to INACTIVE)
+func (r *accountRepository) DeleteAccount(ctx context.Context, bankCode, accountNumber string) error {
+	query := `
+		UPDATE accounts
+		SET status = 'INACTIVE',
+		    updated_at = NOW()
+		WHERE bank_code = $1 AND account_number = $2
+	`
+
+	result, err := r.db.Exec(ctx, query, bankCode, accountNumber)
+	if err != nil {
+		r.logger.ErrorContext("Failed to delete account", err, map[string]interface{}{
+			"bankCode":      bankCode,
+			"accountNumber": accountNumber,
+		})
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		r.logger.WarnContext("No account found to delete", map[string]interface{}{
+			"bankCode":      bankCode,
+			"accountNumber": accountNumber,
+		})
+		return fmt.Errorf("account not found")
+	}
+
+	r.logger.InfoContext("Account deleted successfully", map[string]interface{}{
+		"bankCode":      bankCode,
+		"accountNumber": accountNumber,
+	})
+
+	return nil
 }

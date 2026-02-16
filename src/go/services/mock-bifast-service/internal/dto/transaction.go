@@ -1,7 +1,14 @@
+// src/go/services/mock-bifast-service/internal/dto/transaction.go
 package dto
+
+import "github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 
 // TransactionStatusResponse represents transaction status query response
 type TransactionStatusResponse struct {
+	// Common response fields
+	Success   bool   `json:"success"`
+	Timestamp string `json:"timestamp,omitempty"`
+
 	// Response status
 	ResponseCode string `json:"responseCode"`
 	ResponseMsg  string `json:"responseMsg"`
@@ -25,12 +32,13 @@ type TransactionStatusResponse struct {
 	Description string `json:"description,omitempty"`
 
 	// Status and timing
-	Status          string  `json:"status,omitempty"`
-	TransactionTime string  `json:"transactionTime,omitempty"`
-	CompletedTime   *string `json:"completedTime,omitempty"`
+	Status      string  `json:"status,omitempty"`
+	CreatedAt   string  `json:"createdAt,omitempty"`
+	UpdatedAt   string  `json:"updatedAt,omitempty"`
+	CompletedAt *string `json:"completedAt,omitempty"`
 }
 
-// TransactionItem represents a single transaction in list
+// TransactionItem represents a single transaction in list (for admin endpoints)
 type TransactionItem struct {
 	TransactionID       string  `json:"transactionId"`
 	ReferenceID         string  `json:"referenceId"`
@@ -43,20 +51,47 @@ type TransactionItem struct {
 	Fee                 string  `json:"fee"`
 	Status              string  `json:"status"`
 	CreatedAt           string  `json:"createdAt"`
+	UpdatedAt           string  `json:"updatedAt"`
 	CompletedAt         *string `json:"completedAt,omitempty"`
+}
+
+// ConvertFromModel converts models.Transaction to TransactionItem
+func ConvertFromModel(txn *models.Transaction) *TransactionItem {
+	item := &TransactionItem{
+		TransactionID:       txn.TransactionID,
+		ReferenceID:         txn.ReferenceID,
+		SourceBankCode:      txn.SourceBankCode,
+		SourceAccountNumber: txn.SourceAccountNumber,
+		DestBankCode:        txn.DestBankCode,
+		DestAccountNumber:   txn.DestAccountNumber,
+		Amount:              txn.Amount,
+		Currency:            txn.Currency,
+		Fee:                 txn.Fee,
+		Status:              txn.Status,
+		CreatedAt:           txn.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:           txn.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+
+	if txn.CompletedAt != nil {
+		completedAtStr := txn.CompletedAt.Format("2006-01-02T15:04:05Z07:00")
+		item.CompletedAt = &completedAtStr
+	}
+
+	return item
 }
 
 // TransactionListResponse represents paginated transaction list
 type TransactionListResponse struct {
-	Success    bool              `json:"success"`
-	Data       []TransactionItem `json:"data"`
-	Pagination Pagination        `json:"pagination"`
+	Success    bool               `json:"success"`
+	Data       []*TransactionItem `json:"data"`
+	Pagination PaginationMeta     `json:"pagination"`
+	Timestamp  string             `json:"timestamp"`
 }
 
-// Pagination represents pagination metadata
-type Pagination struct {
+// PaginationMeta represents pagination metadata
+type PaginationMeta struct {
 	Page       int `json:"page"`
 	Limit      int `json:"limit"`
-	Total      int `json:"total"`
+	TotalItems int `json:"totalItems"`
 	TotalPages int `json:"totalPages"`
 }

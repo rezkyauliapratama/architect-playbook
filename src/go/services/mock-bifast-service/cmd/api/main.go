@@ -13,20 +13,21 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/middleware"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/client"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/config"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/handler"
 	localMiddleware "github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/middleware"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/repository"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/service"
-
-	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
-	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/middleware"
 )
 
 func main() {
+	// Load configuration
 	cfg := config.Load()
 
+	// ✅ Initialize logger using libs/logger
 	logger.Initialize(logger.Config{
 		LogLevel:     cfg.LogLevel,
 		IsProduction: cfg.Environment == "production",
@@ -35,21 +36,25 @@ func main() {
 	})
 	log := logger.Get()
 
+	// ✅ Use InfoContext for structured startup logs
 	log.InfoContext("Starting Mock BI-FAST Service", map[string]interface{}{
 		"environment": cfg.Environment,
 		"version":     cfg.Version,
 		"port":        cfg.Server.Port,
 	})
 
+	// Connect to database
 	db, err := connectDatabase(cfg.Database, log)
 	if err != nil {
 		log.Fatal("Failed to connect to database", err)
 	}
 	defer db.Close()
 
+	// Initialize repositories
 	txnRepo := repository.NewTransactionRepository(db, log)
 	accRepo := repository.NewAccountRepository(db, log)
 
+	// Initialize notification client
 	notificationClient := client.NewNotificationClient(client.NotificationClientConfig{
 		BaseURL: cfg.Notification.BaseURL,
 		APIKey:  cfg.Notification.APIKey,
@@ -57,6 +62,7 @@ func main() {
 		Enabled: cfg.Notification.Enabled,
 	}, log)
 
+	// Initialize service layer
 	bifastService := service.NewBiFastService(
 		txnRepo,
 		accRepo,
@@ -65,14 +71,17 @@ func main() {
 		log,
 	)
 
+	// Initialize handler
 	bifastHandler := handler.NewBiFastHandler(bifastService, log)
 
+	// Setup Fiber app
 	app := fiber.New(fiber.Config{
 		ErrorHandler: createErrorHandler(log),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	})
 
+	// ✅ Setup middleware using libs/middleware
 	app.Use(recover.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.LoggingMiddleware())
@@ -84,6 +93,7 @@ func main() {
 		ErrorCode:         "BIFAST-E429",
 	}))
 
+	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "healthy",
@@ -98,31 +108,37 @@ func main() {
 		})
 	})
 
+	// API routes
 	api := app.Group("/api/v1")
 
+	// BI-FAST endpoints
 	bifast := api.Group("/bifast")
 	bifast.Post("/account-inquiry", bifastHandler.AccountInquiry)
 	bifast.Post("/transfer", bifastHandler.BiFastTransfer)
 	bifast.Get("/transactions/:transactionId", bifastHandler.TransactionStatus)
 
+	// Admin endpoints (protected)
 	admin := api.Group("/admin", localMiddleware.AdminAuth(cfg.AdminToken))
 	admin.Get("/transactions", bifastHandler.ListTransactions)
 	admin.Get("/statistics", bifastHandler.GetStatistics)
 	admin.Delete("/transactions/:transactionId", bifastHandler.DeleteTransaction)
 	admin.Delete("/transactions", bifastHandler.ResetAll)
 
+	// Start server
 	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.InfoContext("Server starting", map[string]interface{}{
 		"address": serverAddr,
 		"fee":     cfg.BiFast.Fee,
 	})
 
+	// Start server in goroutine
 	go func() {
 		if err := app.Listen(serverAddr); err != nil {
 			log.Fatal("Failed to start server", err)
 		}
 	}()
 
+	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -139,6 +155,7 @@ func main() {
 	log.Info("Server stopped")
 }
 
+// createErrorHandler creates custom error handler using libs/middleware
 func createErrorHandler(log *logger.Logger) fiber.ErrorHandler {
 	loggerAdapter := &loggerMiddlewareAdapter{log: log}
 
@@ -158,6 +175,7 @@ func createErrorHandler(log *logger.Logger) fiber.ErrorHandler {
 	})
 }
 
+// loggerMiddlewareAdapter adapts libs/logger to middleware.Logger interface
 type loggerMiddlewareAdapter struct {
 	log *logger.Logger
 }
@@ -174,6 +192,7 @@ func (l *loggerMiddlewareAdapter) Error(msg string, err error, context map[strin
 	l.log.ErrorContext(msg, err, context)
 }
 
+// mapToServiceError maps HTTP status codes to service error codes
 func mapToServiceError(code int) (string, string) {
 	switch code {
 	case fiber.StatusBadRequest:
@@ -193,6 +212,7 @@ func mapToServiceError(code int) (string, string) {
 	}
 }
 
+// connectDatabase establishes database connection pool
 func connectDatabase(cfg config.DatabaseConfig, log *logger.Logger) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {

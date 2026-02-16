@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/models/bifast.go
 package models
 
 import "time"
@@ -37,9 +38,11 @@ type Transaction struct {
 // TransactionStatistics represents transaction statistics
 type TransactionStatistics struct {
 	TotalTransactions int    `json:"totalTransactions"`
-	CompletedCount    int    `json:"completedCount"`
+	SuccessCount      int    `json:"successCount"`   // NEW: Alias for CompletedCount
+	CompletedCount    int    `json:"completedCount"` // Kept for backward compatibility
 	FailedCount       int    `json:"failedCount"`
 	PendingCount      int    `json:"pendingCount"`
+	ProcessingCount   int    `json:"processingCount"` // NEW: For PROCESSING status
 	TotalAmount       string `json:"totalAmount"`
 	TotalFee          string `json:"totalFee"`
 }

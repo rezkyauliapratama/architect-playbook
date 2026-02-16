@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/repository/bifast_repository.go
 package repository
 
 import (
@@ -7,51 +8,34 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 
+	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
 	"github.com/rezkyauliapratama/architect-playbook/src/go/services/mock-bifast-service/internal/models"
 )
 
 // TransactionRepository defines transaction data access methods
 type TransactionRepository interface {
-	// Create creates a new transaction
 	Create(ctx context.Context, txn *models.Transaction) error
-
-	// UpdateStatus updates transaction status
 	UpdateStatus(ctx context.Context, transactionID string, status models.TransactionStatus, responseCode, responseMsg string, completedAt *time.Time) error
-
-	// FindByID retrieves a transaction by ID
 	FindByID(ctx context.Context, transactionID string) (*models.Transaction, error)
-
-	// FindByReferenceID retrieves a transaction by reference ID
 	FindByReferenceID(ctx context.Context, referenceID string) (*models.Transaction, error)
-
-	// FindByIdempotencyKey retrieves a transaction by idempotency key
 	FindByIdempotencyKey(ctx context.Context, idempotencyKey string) (*models.Transaction, error)
-
-	// FindAll retrieves all transactions with pagination
 	FindAll(ctx context.Context, limit, offset int) ([]*models.Transaction, int, error)
-
-	// GetStatistics retrieves transaction statistics
 	GetStatistics(ctx context.Context) (*models.TransactionStatistics, error)
-
-	// Delete deletes a transaction by ID
 	Delete(ctx context.Context, transactionID string) error
-
-	// DeleteAll deletes all transactions
 	DeleteAll(ctx context.Context) error
 }
 
 type transactionRepository struct {
 	db     *pgxpool.Pool
-	logger zerolog.Logger
+	logger *logger.Logger // ✅ Use libs/logger instead of zerolog
 }
 
 // NewTransactionRepository creates a new transaction repository
-func NewTransactionRepository(db *pgxpool.Pool, logger zerolog.Logger) TransactionRepository {
+func NewTransactionRepository(db *pgxpool.Pool, log *logger.Logger) TransactionRepository {
 	return &transactionRepository{
 		db:     db,
-		logger: logger,
+		logger: log,
 	}
 }
 
@@ -90,11 +74,20 @@ func (r *transactionRepository) Create(ctx context.Context, txn *models.Transact
 	)
 
 	if err != nil {
-		r.logger.Error().Err(err).Str("transactionId", txn.TransactionID).Msg("Failed to create transaction")
+		// ✅ Use ErrorContext instead of zerolog methods
+		r.logger.ErrorContext("Failed to create transaction", err, map[string]interface{}{
+			"transactionId": txn.TransactionID,
+		})
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	r.logger.Info().Str("transactionId", txn.TransactionID).Msg("Transaction created successfully")
+	// ✅ Use InfoContext for success logs
+	r.logger.InfoContext("Transaction created successfully", map[string]interface{}{
+		"transactionId": txn.TransactionID,
+		"amount":        txn.Amount,
+		"status":        txn.Status,
+	})
+
 	return nil
 }
 
@@ -120,14 +113,17 @@ func (r *transactionRepository) UpdateStatus(ctx context.Context, transactionID 
 	)
 
 	if err != nil {
-		r.logger.Error().Err(err).Str("transactionId", transactionID).Msg("Failed to update transaction status")
+		r.logger.ErrorContext("Failed to update transaction status", err, map[string]interface{}{
+			"transactionId": transactionID,
+		})
 		return fmt.Errorf("failed to update transaction status: %w", err)
 	}
 
-	r.logger.Info().
-		Str("transactionId", transactionID).
-		Str("status", string(status)).
-		Msg("Transaction status updated")
+	r.logger.InfoContext("Transaction status updated", map[string]interface{}{
+		"transactionId": transactionID,
+		"status":        string(status),
+	})
+
 	return nil
 }
 
@@ -171,7 +167,9 @@ func (r *transactionRepository) FindByID(ctx context.Context, transactionID stri
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("transaction not found")
 		}
-		r.logger.Error().Err(err).Str("transactionId", transactionID).Msg("Failed to fetch transaction")
+		r.logger.ErrorContext("Failed to fetch transaction", err, map[string]interface{}{
+			"transactionId": transactionID,
+		})
 		return nil, fmt.Errorf("failed to fetch transaction: %w", err)
 	}
 
@@ -224,7 +222,9 @@ func (r *transactionRepository) FindByReferenceID(ctx context.Context, reference
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("transaction not found")
 		}
-		r.logger.Error().Err(err).Str("referenceId", referenceID).Msg("Failed to fetch transaction")
+		r.logger.ErrorContext("Failed to fetch transaction", err, map[string]interface{}{
+			"referenceId": referenceID,
+		})
 		return nil, fmt.Errorf("failed to fetch transaction: %w", err)
 	}
 
@@ -277,7 +277,9 @@ func (r *transactionRepository) FindByIdempotencyKey(ctx context.Context, idempo
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("transaction not found")
 		}
-		r.logger.Error().Err(err).Str("idempotencyKey", idempotencyKey).Msg("Failed to fetch transaction")
+		r.logger.ErrorContext("Failed to fetch transaction", err, map[string]interface{}{
+			"idempotencyKey": idempotencyKey,
+		})
 		return nil, fmt.Errorf("failed to fetch transaction: %w", err)
 	}
 
@@ -294,7 +296,7 @@ func (r *transactionRepository) FindAll(ctx context.Context, limit, offset int) 
 	var total int
 	countQuery := `SELECT COUNT(*) FROM transactions`
 	if err := r.db.QueryRow(ctx, countQuery).Scan(&total); err != nil {
-		r.logger.Error().Err(err).Msg("Failed to count transactions")
+		r.logger.Error("Failed to count transactions", err)
 		return nil, 0, fmt.Errorf("failed to count transactions: %w", err)
 	}
 
@@ -313,7 +315,7 @@ func (r *transactionRepository) FindAll(ctx context.Context, limit, offset int) 
 
 	rows, err := r.db.Query(ctx, query, limit, offset)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to fetch transactions")
+		r.logger.Error("Failed to fetch transactions", err)
 		return nil, 0, fmt.Errorf("failed to fetch transactions: %w", err)
 	}
 	defer rows.Close()
@@ -344,7 +346,7 @@ func (r *transactionRepository) FindAll(ctx context.Context, limit, offset int) 
 		)
 
 		if err != nil {
-			r.logger.Error().Err(err).Msg("Failed to scan transaction")
+			r.logger.Error("Failed to scan transaction", err)
 			continue
 		}
 
@@ -356,7 +358,7 @@ func (r *transactionRepository) FindAll(ctx context.Context, limit, offset int) 
 	}
 
 	if err := rows.Err(); err != nil {
-		r.logger.Error().Err(err).Msg("Error iterating transactions")
+		r.logger.Error("Error iterating transactions", err)
 		return nil, 0, fmt.Errorf("error iterating transactions: %w", err)
 	}
 
@@ -370,7 +372,8 @@ func (r *transactionRepository) GetStatistics(ctx context.Context) (*models.Tran
 			COUNT(*) as total_transactions,
 			COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_count,
 			COUNT(CASE WHEN status = 'FAILED' THEN 1 END) as failed_count,
-			COUNT(CASE WHEN status IN ('PENDING', 'PROCESSING') THEN 1 END) as pending_count,
+			COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_count,
+			COUNT(CASE WHEN status = 'PROCESSING' THEN 1 END) as processing_count,
 			COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total_amount,
 			COALESCE(SUM(CAST(fee AS DECIMAL)), 0) as total_fee
 		FROM transactions
@@ -384,18 +387,22 @@ func (r *transactionRepository) GetStatistics(ctx context.Context) (*models.Tran
 		&stats.CompletedCount,
 		&stats.FailedCount,
 		&stats.PendingCount,
+		&stats.ProcessingCount, // ✅ NEW: Scan processing count separately
 		&totalAmount,
 		&totalFee,
 	)
 
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to fetch statistics")
+		r.logger.Error("Failed to fetch statistics", err)
 		return nil, fmt.Errorf("failed to fetch statistics: %w", err)
 	}
 
 	// Format amounts
 	stats.TotalAmount = fmt.Sprintf("%.2f", totalAmount)
 	stats.TotalFee = fmt.Sprintf("%.2f", totalFee)
+
+	// ✅ NEW: Set SuccessCount as alias of CompletedCount
+	stats.SuccessCount = stats.CompletedCount
 
 	return &stats, nil
 }
@@ -406,7 +413,9 @@ func (r *transactionRepository) Delete(ctx context.Context, transactionID string
 
 	result, err := r.db.Exec(ctx, query, transactionID)
 	if err != nil {
-		r.logger.Error().Err(err).Str("transactionId", transactionID).Msg("Failed to delete transaction")
+		r.logger.ErrorContext("Failed to delete transaction", err, map[string]interface{}{
+			"transactionId": transactionID,
+		})
 		return fmt.Errorf("failed to delete transaction: %w", err)
 	}
 
@@ -415,7 +424,10 @@ func (r *transactionRepository) Delete(ctx context.Context, transactionID string
 		return fmt.Errorf("transaction not found")
 	}
 
-	r.logger.Info().Str("transactionId", transactionID).Msg("Transaction deleted successfully")
+	r.logger.InfoContext("Transaction deleted successfully", map[string]interface{}{
+		"transactionId": transactionID,
+	})
+
 	return nil
 }
 
@@ -425,11 +437,14 @@ func (r *transactionRepository) DeleteAll(ctx context.Context) error {
 
 	result, err := r.db.Exec(ctx, query)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to delete all transactions")
+		r.logger.Error("Failed to delete all transactions", err)
 		return fmt.Errorf("failed to delete all transactions: %w", err)
 	}
 
 	rowsAffected := result.RowsAffected()
-	r.logger.Warn().Int64("rowsDeleted", rowsAffected).Msg("All transactions deleted")
+	r.logger.WarnContext("All transactions deleted", map[string]interface{}{
+		"rowsDeleted": rowsAffected,
+	})
+
 	return nil
 }

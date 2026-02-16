@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/dto/response.go
 package dto
 
 import "github.com/gofiber/fiber/v2"
@@ -54,9 +55,10 @@ func GetResponseMessage(code string) string {
 // ErrorResponse represents a generic error response
 type ErrorResponse struct {
 	Success      bool   `json:"success"`
-	Error        string `json:"error"`
+	Error        string `json:"error,omitempty"`
 	Message      string `json:"message"`
 	ResponseCode string `json:"responseCode,omitempty"`
+	ResponseMsg  string `json:"responseMsg,omitempty"`
 	Timestamp    string `json:"timestamp"`
 }
 
@@ -70,8 +72,9 @@ type SuccessResponse struct {
 
 // DeleteResponse represents delete operation response
 type DeleteResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	Timestamp string `json:"timestamp"`
 }
 
 // ValidationError represents validation error details
@@ -82,9 +85,10 @@ type ValidationError struct {
 
 // ValidationErrorResponse represents validation error response
 type ValidationErrorResponse struct {
-	Success bool              `json:"success"`
-	Error   string            `json:"error"`
-	Details []ValidationError `json:"details"`
+	Success   bool              `json:"success"`
+	Error     string            `json:"error"`
+	Details   []ValidationError `json:"details"`
+	Timestamp string            `json:"timestamp"`
 }
 
 // NewErrorResponse creates a new error response

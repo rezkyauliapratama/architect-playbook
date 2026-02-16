@@ -1,14 +1,15 @@
+// src/go/services/mock-bifast-service/internal/dto/scenario.go
 package dto
 
-// TestScenario represents test scenario configuration
+// TestScenario represents test scenario configuration untuk testing
 type TestScenario struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Trigger     string `json:"trigger"`  // What triggers this scenario
-	Behavior    string `json:"behavior"` // Expected behavior
+	Name        string `json:"name"`        // Scenario name
+	Description string `json:"description"` // Scenario description
+	Trigger     string `json:"trigger"`     // Apa yang trigger scenario ini
+	Behavior    string `json:"behavior"`    // Expected behavior dari scenario
 }
 
-// Predefined test scenarios
+// TestScenarios contains predefined test scenarios untuk mock service
 var TestScenarios = []TestScenario{
 	{
 		Name:        "Success Scenario",
@@ -42,8 +43,8 @@ var TestScenarios = []TestScenario{
 	},
 }
 
-// ScenarioResponse represents scenario list response
+// ScenarioResponse represents response yang contains list of test scenarios
 type ScenarioResponse struct {
-	Success   bool           `json:"success"`
-	Scenarios []TestScenario `json:"scenarios"`
+	Success   bool           `json:"success"`   // Status response
+	Scenarios []TestScenario `json:"scenarios"` // List available scenarios
 }

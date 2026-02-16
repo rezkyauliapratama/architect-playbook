@@ -1,3 +1,4 @@
+// src/go/services/mock-bifast-service/internal/dto/admin.go
 package dto
 
 // AdminTransactionQuery represents query parameters for admin transaction list

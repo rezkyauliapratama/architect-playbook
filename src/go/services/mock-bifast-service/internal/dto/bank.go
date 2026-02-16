@@ -1,19 +1,20 @@
+// src/go/services/mock-bifast-service/internal/dto/bank.go
 package dto
 
-// BankInfo represents bank information
+// BankInfo represents informasi bank participant BI-FAST
 type BankInfo struct {
-	BankCode  string `json:"bankCode"`
-	BankName  string `json:"bankName"`
-	SwiftCode string `json:"swiftCode,omitempty"`
+	BankCode  string `json:"bankCode"`            // Bank code 8 karakter
+	BankName  string `json:"bankName"`            // Nama bank lengkap
+	SwiftCode string `json:"swiftCode,omitempty"` // SWIFT/BIC code (optional)
 }
 
 // SupportedBanksResponse represents list of supported banks
 type SupportedBanksResponse struct {
-	Success bool       `json:"success"`
-	Data    []BankInfo `json:"data"`
+	Success bool       `json:"success"` // Status response
+	Data    []BankInfo `json:"data"`    // List supported banks
 }
 
-// Bank codes for major Indonesian banks (BI-FAST participants)
+// SupportedBanks contains list of major Indonesian banks (BI-FAST participants)
 var SupportedBanks = []BankInfo{
 	{BankCode: "CENAIDJA", BankName: "Bank Central Asia", SwiftCode: "CENAIDJA"},
 	{BankCode: "BDINIDJA", BankName: "Bank Danamon Indonesia", SwiftCode: "BDINIDJA"},
@@ -27,17 +28,17 @@ var SupportedBanks = []BankInfo{
 	{BankCode: "DEUTIDJA", BankName: "Deutsche Bank Indonesia", SwiftCode: "DEUTIDJA"},
 }
 
-// GetBankName returns bank name by code
+// GetBankName returns bank name berdasarkan bank code
 func GetBankName(bankCode string) string {
 	for _, bank := range SupportedBanks {
 		if bank.BankCode == bankCode {
 			return bank.BankName
 		}
 	}
-	return "Unknown Bank"
+	return "Unknown Bank" // Default jika tidak ditemukan
 }
 
-// IsSupportedBank checks if bank code is supported
+// IsSupportedBank checks apakah bank code didukung oleh mock service
 func IsSupportedBank(bankCode string) bool {
 	for _, bank := range SupportedBanks {
 		if bank.BankCode == bankCode {
