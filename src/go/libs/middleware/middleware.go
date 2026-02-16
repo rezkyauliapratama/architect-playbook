@@ -1,42 +1,41 @@
-// pkg/logger/middleware.go
+// src/go/libs/middleware/middleware.go
 package middleware
 
 import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+
 	"github.com/rezkyauliapratama/architect-playbook/src/go/libs/logger"
 )
 
-// FiberMiddleware returns a Fiber middleware handler that logs HTTP requests
-func FiberMiddleware() fiber.Handler {
+// LoggingMiddleware returns a Fiber middleware that logs HTTP requests
+func LoggingMiddleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		start := time.Now()
 
-		// Get the logger instance
 		log := logger.Get()
 
-		// Store the logger in context to make it accessible in handlers
-		c.Locals("logger", log)
-
-		// Process request
-		err := c.Next()
-
-		// Calculate response time
-		responseTime := time.Since(start)
-
-		// Prepare log context
-		logContext := map[string]interface{}{
-			"status":        c.Response().StatusCode(),
-			"method":        c.Method(),
-			"path":          c.Path(),
-			"ip":            c.IP(),
-			"user_agent":    c.Get("User-Agent"),
-			"response_time": responseTime.String(),
-			"bytes":         len(c.Response().Body()),
+		if requestID := GetRequestID(c); requestID != "" {
+			log = log.WithRequestID(requestID)
 		}
 
-		// Log based on status code
+		c.Locals("logger", log)
+
+		err := c.Next()
+
+		responseTime := time.Since(start)
+
+		logContext := map[string]interface{}{
+			"status":       c.Response().StatusCode(),
+			"method":       c.Method(),
+			"path":         c.Path(),
+			"ip":           c.IP(),
+			"user_agent":   c.Get("User-Agent"),
+			"responseTime": responseTime.Milliseconds(),
+			"bytes":        len(c.Response().Body()),
+		}
+
 		if err != nil {
 			log.ErrorContext("Request error", err, logContext)
 		} else if c.Response().StatusCode() >= 500 {
@@ -49,4 +48,12 @@ func FiberMiddleware() fiber.Handler {
 
 		return err
 	}
+}
+
+// GetLoggerFromContext retrieves the logger from Fiber context
+func GetLoggerFromContext(c *fiber.Ctx) *logger.Logger {
+	if log, ok := c.Locals("logger").(*logger.Logger); ok {
+		return log
+	}
+	return logger.Get()
 }

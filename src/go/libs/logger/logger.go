@@ -1,4 +1,4 @@
-// pkg/logger/logger.go
+// src/go/libs/logger/logger.go
 package logger
 
 import (
@@ -16,36 +16,30 @@ type Logger struct {
 }
 
 var (
-	// defaultLogger is the global logger instance
 	defaultLogger *Logger
 )
 
 // Config contains configuration options for the logger
 type Config struct {
-	// LogLevel sets the minimum level logs will be written
-	LogLevel string
-	// IsProduction determines output format (pretty console vs JSON)
+	LogLevel     string
 	IsProduction bool
-	// Output sets the destination for the logs (defaults to os.Stdout)
-	Output io.Writer
+	Output       io.Writer
+	ServiceName  string
+	Version      string
 }
 
 // Initialize sets up the default logger with the provided configuration
 func Initialize(cfg Config) {
-	// Set up error stack traces
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
-	// Parse log level, defaulting to info if invalid
 	level, err := zerolog.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		level = zerolog.InfoLevel
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// Set time format to ISO8601
 	zerolog.TimeFieldFormat = time.RFC3339
 
-	// Default output to stdout if none provided
 	output := cfg.Output
 	if output == nil {
 		output = os.Stdout
@@ -53,10 +47,8 @@ func Initialize(cfg Config) {
 
 	var zl zerolog.Logger
 	if cfg.IsProduction {
-		// JSON structured logging for production
 		zl = zerolog.New(output).With().Timestamp().Caller().Logger()
 	} else {
-		// Pretty console logging for development
 		consoleWriter := zerolog.ConsoleWriter{
 			Out:        output,
 			TimeFormat: "15:04:05",
@@ -64,14 +56,19 @@ func Initialize(cfg Config) {
 		zl = zerolog.New(consoleWriter).With().Timestamp().Caller().Logger()
 	}
 
-	// Initialize the default logger
+	if cfg.ServiceName != "" {
+		zl = zl.With().Str("service", cfg.ServiceName).Logger()
+	}
+	if cfg.Version != "" {
+		zl = zl.With().Str("version", cfg.Version).Logger()
+	}
+
 	defaultLogger = &Logger{zl: zl}
 }
 
 // Get returns the global logger instance
 func Get() *Logger {
 	if defaultLogger == nil {
-		// Auto-initialize with sensible defaults if not already initialized
 		Initialize(Config{
 			LogLevel:     "info",
 			IsProduction: false,
@@ -80,7 +77,7 @@ func Get() *Logger {
 	return defaultLogger
 }
 
-// With adds key-value pairs to the logger context
+// WithField adds key-value pairs to the logger context
 func (l *Logger) WithField(key string, value interface{}) *Logger {
 	return &Logger{zl: l.zl.With().Interface(key, value).Logger()}
 }
@@ -97,6 +94,11 @@ func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 // WithTransferID adds a transfer ID field to the logger
 func (l *Logger) WithTransferID(transferID string) *Logger {
 	return &Logger{zl: l.zl.With().Str("transfer_id", transferID).Logger()}
+}
+
+// WithRequestID adds a request ID field to the logger
+func (l *Logger) WithRequestID(requestID string) *Logger {
+	return &Logger{zl: l.zl.With().Str("request_id", requestID).Logger()}
 }
 
 // Trace logs a message at trace level
@@ -172,4 +174,18 @@ func (l *Logger) ErrorContext(msg string, err error, ctx map[string]interface{})
 		event = event.Interface(k, v)
 	}
 	event.Msg(msg)
+}
+
+// FatalContext logs a message with context fields at fatal level
+func (l *Logger) FatalContext(msg string, err error, ctx map[string]interface{}) {
+	event := l.zl.Fatal().Err(err)
+	for k, v := range ctx {
+		event = event.Interface(k, v)
+	}
+	event.Msg(msg)
+}
+
+// GetZerolog returns the underlying zerolog.Logger for advanced usage
+func (l *Logger) GetZerolog() zerolog.Logger {
+	return l.zl
 }

@@ -1,4 +1,3 @@
-// src/go/libs/middleware/request_id.go
 package middleware
 
 import (
@@ -6,23 +5,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// RequestID generates and attaches a unique request ID to each request
 func RequestID() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		requestID := c.Get("X-Request-ID")
+
 		if requestID == "" {
 			requestID = uuid.New().String()
 		}
+
 		c.Locals("requestID", requestID)
 		c.Set("X-Request-ID", requestID)
+
 		return c.Next()
 	}
-}
-
-// GetRequestID retrieves request ID from context
-func GetRequestID(c *fiber.Ctx) string {
-	if requestID, ok := c.Locals("requestID").(string); ok {
-		return requestID
-	}
-	return ""
 }
