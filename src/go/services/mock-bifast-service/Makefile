@@ -98,12 +98,12 @@ docker-restart: docker-down docker-up ## Restart Docker Compose services
 migrate-up: ## Run database migrations
 	@echo "$(GREEN)Running database migrations...$(NC)"
 	@command -v migrate >/dev/null 2>&1 || { echo "$(RED)golang-migrate is not installed. See: https://github.com/golang-migrate/migrate$(NC)"; exit 1; }
-	migrate -path migrations -database "postgres://postgres:postgres@localhost:5432/mockbifast?sslmode=disable" up
+	migrate -path migrations -database "postgres://root:password@localhost:5432/bifast?sslmode=disable" up
 	@echo "$(GREEN)Migrations completed$(NC)"
 
 migrate-down: ## Rollback database migrations
 	@echo "$(YELLOW)Rolling back database migrations...$(NC)"
-	migrate -path migrations -database "postgres://postgres:postgres@localhost:5432/mockbifast?sslmode=disable" down
+	migrate -path migrations -database "postgres://root:password@localhost:5432/bifast?sslmode=disable" down
 	@echo "$(GREEN)Rollback completed$(NC)"
 
 db-reset: ## Reset database (drop and recreate)

@@ -24,8 +24,12 @@ import (
 )
 
 func main() {
-	// Load configuration
-	cfg := config.Load()
+	// ✅ FIX: Load configuration with error handling
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("❌ Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
 
 	// ✅ Initialize logger using libs/logger
 	logger.Initialize(logger.Config{
@@ -54,9 +58,9 @@ func main() {
 	txnRepo := repository.NewTransactionRepository(db, log)
 	accRepo := repository.NewAccountRepository(db, log)
 
-	// Initialize notification client
+	// ✅ FIX: Use ServiceURL instead of BaseURL
 	notificationClient := client.NewNotificationClient(client.NotificationClientConfig{
-		BaseURL: cfg.Notification.BaseURL,
+		BaseURL: cfg.Notification.ServiceURL,
 		APIKey:  cfg.Notification.APIKey,
 		Timeout: cfg.Notification.Timeout,
 		Enabled: cfg.Notification.Enabled,
@@ -85,7 +89,6 @@ func main() {
 	app.Use(recover.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.LoggingMiddleware())
-	app.Use(middleware.CORS())
 	app.Use(middleware.RateLimiter(middleware.RateLimitConfig{
 		Enabled:           cfg.RateLimit.Enabled,
 		RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,

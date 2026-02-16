@@ -1,0 +1,606 @@
+{
+  "info": {
+    "name": "Mock BI-FAST Service - MVP Testing",
+    "description": "Complete API testing collection for Mock BI-FAST Service\n\nFeatures:\n- Account inquiry\n- BI-FAST transfer\n- Transaction status\n- Admin operations\n\nAuthor: Rezky Aulia Pratama\nVersion: 1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Service is healthy\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"healthy\");",
+                  "    pm.expect(jsonData.service).to.eql(\"mock-bifast-service\");",
+                  "});",
+                  "",
+                  "pm.test(\"Config is present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.config).to.have.property('fee');",
+                  "    pm.expect(jsonData.config).to.have.property('maxAmount');",
+                  "    pm.expect(jsonData.config).to.have.property('minAmount');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check service health status and configuration"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "BI-FAST Operations",
+      "item": [
+        {
+          "name": "Account Inquiry - Valid Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is success\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"00\");",
+                  "});",
+                  "",
+                  "pm.test(\"Account data is present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('bank_code');",
+                  "    pm.expect(jsonData.data).to.have.property('account_number');",
+                  "    pm.expect(jsonData.data).to.have.property('account_name');",
+                  "    pm.expect(jsonData.data).to.have.property('is_active');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bank_code\": \"CENAIDJA\",\n  \"account_number\": \"1122334455\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/account-inquiry",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "account-inquiry"]
+            },
+            "description": "Inquiry for valid BCA account (Alice Johnson)"
+          },
+          "response": []
+        },
+        {
+          "name": "Account Inquiry - Account Not Found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is error\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.false;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"14\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bank_code\": \"CENAIDJA\",\n  \"account_number\": \"9999999999\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/account-inquiry",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "account-inquiry"]
+            },
+            "description": "Test account not found scenario"
+          },
+          "response": []
+        },
+        {
+          "name": "BI-FAST Transfer - Success",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate unique idempotency key",
+                  "pm.environment.set(\"idempotency_key\", pm.variables.replaceIn('{{$guid}}'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Transfer is successful\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"00\");",
+                  "    pm.expect(jsonData.data.status).to.eql(\"COMPLETED\");",
+                  "});",
+                  "",
+                  "pm.test(\"Transaction ID is present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('transaction_id');",
+                  "    pm.environment.set(\"last_transaction_id\", jsonData.data.transaction_id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference_id\": \"REF-{{$timestamp}}\",\n  \"source_bank_code\": \"CENAIDJA\",\n  \"source_account_number\": \"1122334455\",\n  \"dest_bank_code\": \"BRINIDJA\",\n  \"dest_account_number\": \"1234567890\",\n  \"amount\": 500000,\n  \"description\": \"Payment for invoice INV-001\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "transfer"]
+            },
+            "description": "Transfer Rp 500,000 from BCA (Alice) to BRI (John Doe)"
+          },
+          "response": []
+        },
+        {
+          "name": "BI-FAST Transfer - Insufficient Balance",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.environment.set(\"idempotency_key\", pm.variables.replaceIn('{{$guid}}'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Insufficient balance error\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.false;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"51\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference_id\": \"REF-{{$timestamp}}\",\n  \"source_bank_code\": \"BMRIIDJA\",\n  \"source_account_number\": \"1111000099\",\n  \"dest_bank_code\": \"CENAIDJA\",\n  \"dest_account_number\": \"1122334455\",\n  \"amount\": 50000000,\n  \"description\": \"Large transfer that will fail\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "transfer"]
+            },
+            "description": "Test insufficient balance (account has IDR 1000)"
+          },
+          "response": []
+        },
+        {
+          "name": "BI-FAST Transfer - Amount Below Minimum",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.environment.set(\"idempotency_key\", pm.variables.replaceIn('{{$guid}}'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Amount too low error\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.false;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"13\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference_id\": \"REF-{{$timestamp}}\",\n  \"source_bank_code\": \"CENAIDJA\",\n  \"source_account_number\": \"1122334455\",\n  \"dest_bank_code\": \"BRINIDJA\",\n  \"dest_account_number\": \"1234567890\",\n  \"amount\": 5000,\n  \"description\": \"Transfer below minimum\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "transfer"]
+            },
+            "description": "Test amount below minimum (IDR 10,000)"
+          },
+          "response": []
+        },
+        {
+          "name": "BI-FAST Transfer - Blocked Account",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.environment.set(\"idempotency_key\", pm.variables.replaceIn('{{$guid}}'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Blocked account error\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.false;",
+                  "    pm.expect(jsonData.response_code).to.eql(\"78\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference_id\": \"REF-{{$timestamp}}\",\n  \"source_bank_code\": \"BRINIDJA\",\n  \"source_account_number\": \"9999888877\",\n  \"dest_bank_code\": \"CENAIDJA\",\n  \"dest_account_number\": \"1122334455\",\n  \"amount\": 100000,\n  \"description\": \"Transfer from blocked account\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "transfer"]
+            },
+            "description": "Test blocked account scenario"
+          },
+          "response": []
+        },
+        {
+          "name": "Transaction Status - Get by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Transaction details present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('transaction_id');",
+                  "    pm.expect(jsonData.data).to.have.property('status');",
+                  "    pm.expect(jsonData.data).to.have.property('amount');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/bifast/transactions/{{last_transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "bifast", "transactions", "{{last_transaction_id}}"]
+            },
+            "description": "Get transaction status using last transaction ID from transfer"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin Operations",
+      "item": [
+        {
+          "name": "List All Transactions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Transactions list present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('transactions');",
+                  "    pm.expect(jsonData.data).to.have.property('total');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/transactions?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "transactions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "List all transactions (admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Statistics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Statistics present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data).to.have.property('total_transactions');",
+                  "    pm.expect(jsonData.data).to.have.property('total_amount');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/statistics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "statistics"]
+            },
+            "description": "Get transaction statistics (admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Transaction by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Transaction deleted\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/transactions/{{last_transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "transactions", "{{last_transaction_id}}"]
+            },
+            "description": "Delete specific transaction (admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "Reset All Transactions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"All transactions deleted\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/transactions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "transactions"]
+            },
+            "description": "⚠️ WARNING: Delete ALL transactions (admin only)"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "docker-admin-token-123",
+      "type": "string"
+    }
+  ]
+}
