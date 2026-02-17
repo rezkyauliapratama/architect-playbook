@@ -35,7 +35,7 @@ func (s *NotificationService) CreateNotification(ctx context.Context, req *dto.C
 	log := logger.Get().WithField("method", "NotificationService.CreateNotification")
 
 	// Generate notification ID
-	notificationID := fmt.Sprintf("NOTIF-%s", uuid.Generate()[:8])
+	notificationID := fmt.Sprintf("NOTIF-%s", uuid.Generate()[:13])
 
 	now := time.Now()
 

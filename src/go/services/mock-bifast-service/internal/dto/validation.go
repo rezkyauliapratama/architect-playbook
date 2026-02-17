@@ -225,10 +225,22 @@ func FormatAmount(amount string) string {
 }
 
 // ParseAmount parses amount string to float64
-func ParseAmount(amount string) (float64, error) {
-	amt, err := strconv.ParseFloat(amount, 64)
+
+// ParseAmount parses amount string to float64
+func ParseAmount(amountStr string) (float64, error) {
+	// Remove whitespace
+	amountStr = strings.TrimSpace(amountStr)
+
+	// Parse to float64
+	amount, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid amount format")
+		return 0, fmt.Errorf("invalid amount format: %s", amountStr)
 	}
-	return amt, nil
+
+	// Validate positive amount
+	if amount <= 0 {
+		return 0, fmt.Errorf("amount must be greater than 0")
+	}
+
+	return amount, nil
 }

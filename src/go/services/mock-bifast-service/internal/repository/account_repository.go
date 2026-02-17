@@ -48,7 +48,7 @@ func (r *accountRepository) GetAccount(ctx context.Context, bankCode, accountNum
 			created_at,
 			updated_at
 		FROM accounts
-		WHERE bank_code = $1 AND account_number = $2 AND status = 'ACTIVE'
+		WHERE bank_code = $1 AND account_number = $2 AND status = 'active'
 	`
 
 	var account models.Account
@@ -292,7 +292,7 @@ func (r *accountRepository) ListAccounts(ctx context.Context, bankCode string, l
 func (r *accountRepository) DeleteAccount(ctx context.Context, bankCode, accountNumber string) error {
 	query := `
 		UPDATE accounts
-		SET status = 'INACTIVE',
+		SET status = 'inactive',
 		    updated_at = NOW()
 		WHERE bank_code = $1 AND account_number = $2
 	`

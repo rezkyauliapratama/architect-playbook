@@ -1,91 +1,131 @@
 // src/go/services/mock-bifast-service/internal/dto/transfer.go
 package dto
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // TransferRequest represents BI-FAST transfer request
 type TransferRequest struct {
-	// Source information
-	SourceBankCode      string `json:"sourceBankCode" validate:"required,len=8"`
-	SourceAccountNumber string `json:"sourceAccountNumber" validate:"required,min=1,max=50"`
+	ReferenceID         string `json:"reference_id" validate:"required,max=50"`
+	IdempotencyKey      string `json:"idempotency_key" validate:"required,max=100"`
+	SourceBankCode      string `json:"source_bank_code" validate:"required,len=8"`
+	SourceAccountNumber string `json:"source_account_number" validate:"required,min=10,max=20"`
+	DestBankCode        string `json:"dest_bank_code" validate:"required,len=8"`
+	DestAccountNumber   string `json:"dest_account_number" validate:"required,min=10,max=20"`
+	Amount              string `json:"amount" validate:"required"`
+	Currency            string `json:"currency" validate:"required,len=3"`
+	Description         string `json:"description" validate:"max=200"`
+}
 
-	// Destination information
-	DestBankCode      string `json:"destBankCode" validate:"required,len=8"`
-	DestAccountNumber string `json:"destAccountNumber" validate:"required,min=1,max=50"`
+// UnmarshalJSON custom unmarshaler to handle both number and string for amount
+func (r *TransferRequest) UnmarshalJSON(data []byte) error {
+	// Create an alias type to avoid recursion
+	type Alias TransferRequest
 
-	// Transaction details
-	Amount      string `json:"amount" validate:"required,numeric"`
-	Currency    string `json:"currency" validate:"required,len=3"`
-	Description string `json:"description" validate:"max=255"`
+	// First, try to unmarshal normally (when amount is string)
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
 
-	// Reference and idempotency
-	ReferenceID    string `json:"referenceId" validate:"required,min=1,max=100"`
-	IdempotencyKey string `json:"-"` // Populated from header
+	if err := json.Unmarshal(data, aux); err == nil {
+		// Successfully unmarshaled, amount is already a string
+		return nil
+	}
+
+	// If failed, amount might be a number, so use raw unmarshaling
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	// Convert amount from number to string if needed
+	if amountVal, ok := raw["amount"]; ok {
+		switch v := amountVal.(type) {
+		case float64:
+			// ✅ Convert number to string with 2 decimal places
+			r.Amount = fmt.Sprintf("%.2f", v)
+		case int:
+			r.Amount = fmt.Sprintf("%d.00", v)
+		case string:
+			r.Amount = v
+		default:
+			return fmt.Errorf("invalid amount type: %T", v)
+		}
+		delete(raw, "amount") // Remove to avoid re-processing
+	}
+
+	// Marshal back without amount field, then unmarshal to struct
+	remaining, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+
+	// Unmarshal remaining fields
+	type TempAlias TransferRequest
+	temp := (*TempAlias)(r)
+	return json.Unmarshal(remaining, temp)
 }
 
 // Validate validates the transfer request
 func (r *TransferRequest) Validate() error {
-	// Sanitize inputs
-	r.SourceBankCode = SanitizeBankCode(r.SourceBankCode)
-	r.SourceAccountNumber = SanitizeAccountNumber(r.SourceAccountNumber)
-	r.DestBankCode = SanitizeBankCode(r.DestBankCode)
-	r.DestAccountNumber = SanitizeAccountNumber(r.DestAccountNumber)
-
-	// Validate source bank code
-	if len(r.SourceBankCode) < 3 || len(r.SourceBankCode) > 8 {
-		return fmt.Errorf("source bank code must be 3-8 characters")
-	}
-
-	// Validate source account number
-	if r.SourceAccountNumber == "" {
-		return fmt.Errorf("source account number is required")
-	}
-
-	if len(r.SourceAccountNumber) > 50 {
-		return fmt.Errorf("source account number must be max 50 characters")
-	}
-
-	// Validate destination bank code
-	if len(r.DestBankCode) < 3 || len(r.DestBankCode) > 8 {
-		return fmt.Errorf("destination bank code must be 3-8 characters")
-	}
-
-	// Validate destination account number
-	if r.DestAccountNumber == "" {
-		return fmt.Errorf("destination account number is required")
-	}
-
-	if len(r.DestAccountNumber) > 50 {
-		return fmt.Errorf("destination account number must be max 50 characters")
-	}
-
-	// Validate amount
-	if err := ValidateAmount(r.Amount); err != nil {
-		return fmt.Errorf("invalid amount: %w", err)
-	}
-
-	// Validate currency (must be 3 uppercase letters)
-	if len(r.Currency) != 3 {
-		return fmt.Errorf("currency must be 3 characters (e.g., IDR, USD)")
-	}
-
-	// Validate reference ID
+	// Check required fields
 	if r.ReferenceID == "" {
-		return fmt.Errorf("reference ID is required")
+		return fmt.Errorf("reference_id is required")
+	}
+	if r.SourceBankCode == "" {
+		return fmt.Errorf("source_bank_code is required")
+	}
+	if r.SourceAccountNumber == "" {
+		return fmt.Errorf("source_account_number is required")
+	}
+	if r.DestBankCode == "" {
+		return fmt.Errorf("dest_bank_code is required")
+	}
+	if r.DestAccountNumber == "" {
+		return fmt.Errorf("dest_account_number is required")
+	}
+	if r.Amount == "" {
+		return fmt.Errorf("amount is required")
 	}
 
-	if len(r.ReferenceID) > 100 {
-		return fmt.Errorf("reference ID must be max 100 characters")
+	// Validate bank code format (8 characters)
+	if len(r.SourceBankCode) != 8 {
+		return fmt.Errorf("source_bank_code must be exactly 8 characters")
+	}
+	if len(r.DestBankCode) != 8 {
+		return fmt.Errorf("dest_bank_code must be exactly 8 characters")
 	}
 
-	// Validate idempotency key
-	if r.IdempotencyKey == "" {
-		return fmt.Errorf("idempotency key is required (X-Idempotency-Key header)")
+	// Validate account number length
+	if len(r.SourceAccountNumber) < 10 || len(r.SourceAccountNumber) > 20 {
+		return fmt.Errorf("source_account_number must be between 10-20 characters")
+	}
+	if len(r.DestAccountNumber) < 10 || len(r.DestAccountNumber) > 20 {
+		return fmt.Errorf("dest_account_number must be between 10-20 characters")
+	}
+
+	// Validate amount format
+	if _, err := ParseAmount(r.Amount); err != nil {
+		return fmt.Errorf("invalid amount format: %w", err)
+	}
+
+	// Set default currency if not provided
+	if r.Currency == "" {
+		r.Currency = "IDR"
+	}
+
+	// Validate currency (must be 3 characters)
+	if len(r.Currency) != 3 {
+		return fmt.Errorf("currency must be exactly 3 characters")
 	}
 
 	// Validate description length
-	if len(r.Description) > 255 {
-		return fmt.Errorf("description must be max 255 characters")
+	if len(r.Description) > 200 {
+		return fmt.Errorf("description must not exceed 200 characters")
 	}
 
 	return nil
@@ -93,28 +133,17 @@ func (r *TransferRequest) Validate() error {
 
 // TransferResponse represents BI-FAST transfer response
 type TransferResponse struct {
-	// Common response fields
-	Success   bool   `json:"success"`
-	Timestamp string `json:"timestamp,omitempty"`
-
-	// Response status
-	ResponseCode string `json:"responseCode"`
-	ResponseMsg  string `json:"responseMsg"`
-
-	// Transaction information
-	TransactionID string `json:"transactionId,omitempty"`
-	ReferenceID   string `json:"referenceId"`
-
-	// Amount information
-	Amount   string `json:"amount,omitempty"`
-	Currency string `json:"currency,omitempty"`
-	Fee      string `json:"fee,omitempty"`
-
-	// Account names
-	SourceAccountName string `json:"sourceAccountName,omitempty"`
-	DestAccountName   string `json:"destAccountName,omitempty"`
-
-	// Status and timing
-	Status          string `json:"status,omitempty"`
-	TransactionTime string `json:"transactionTime,omitempty"`
+	Success           bool   `json:"success"`
+	ResponseCode      string `json:"response_code"`
+	ResponseMsg       string `json:"response_message"`
+	TransactionID     string `json:"transaction_id,omitempty"`
+	ReferenceID       string `json:"reference_id"`
+	Amount            string `json:"amount,omitempty"`
+	Currency          string `json:"currency,omitempty"`
+	Fee               string `json:"fee,omitempty"`
+	SourceAccountName string `json:"source_account_name,omitempty"`
+	DestAccountName   string `json:"dest_account_name,omitempty"`
+	Status            string `json:"status,omitempty"`
+	TransactionTime   string `json:"transaction_time,omitempty"`
+	Timestamp         string `json:"timestamp"`
 }

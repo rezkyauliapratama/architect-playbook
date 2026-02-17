@@ -89,7 +89,7 @@ func main() {
 	app.Use(recover.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.LoggingMiddleware())
-	app.Use(middleware.CORS())
+	// app.Use(middleware.CORS())
 	app.Use(compress.New())
 
 	// Set up routes

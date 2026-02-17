@@ -18,7 +18,7 @@ type NotificationClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
-	logger     *logger.Logger // ✅ Changed from zerolog.Logger
+	logger     *logger.Logger
 	enabled    bool
 }
 
@@ -33,20 +33,13 @@ type NotificationClientConfig struct {
 
 // NotificationRequest represents the request payload to notification service
 type NotificationRequest struct {
-	Type      string                 `json:"type"`
-	Channel   []string               `json:"channel"`
-	Recipient NotificationRecipient  `json:"recipient"`
-	Data      map[string]interface{} `json:"data"`
-	Template  string                 `json:"template,omitempty"`
-	Priority  string                 `json:"priority,omitempty"`
-}
-
-// NotificationRecipient represents the notification recipient
-type NotificationRecipient struct {
-	UserID      string `json:"userId,omitempty"`
-	Email       string `json:"email,omitempty"`
-	PhoneNumber string `json:"phoneNumber,omitempty"`
-	AccountNo   string `json:"accountNo,omitempty"`
+	RecipientID string                 `json:"recipientId"` // ✅ Added to match notification service
+	Type        string                 `json:"type"`
+	Title       string                 `json:"title"`   // ✅ Added to match notification service
+	Message     string                 `json:"message"` // ✅ Added to match notification service
+	Channel     string                 `json:"channel"` // ✅ Changed from []string to string
+	App         string                 `json:"app"`     // ✅ Added to match notification service
+	Data        map[string]interface{} `json:"data,omitempty"`
 }
 
 // NotificationResponse represents the response from notification service
@@ -98,91 +91,120 @@ func (c *NotificationClient) SendTransactionNotification(ctx context.Context, tx
 		return nil
 	}
 
-	// Determine notification type and template
-	notifType := "transaction.created"
-	template := "transaction_created"
-	priority := "normal"
+	// Determine notification type and message based on status
+	var notifType, title, message string
 
 	switch txn.Status {
 	case string(models.StatusCompleted):
-		notifType = "transaction.completed"
-		template = "transaction_completed"
-		priority = "high"
+		notifType = "EMAIL"
+		title = "Transaction Completed"
+		message = fmt.Sprintf("Your BI-FAST transfer of %s %s has been completed successfully",
+			txn.Currency, txn.Amount)
 	case string(models.StatusFailed):
-		notifType = "transaction.failed"
-		template = "transaction_failed"
-		priority = "high"
+		notifType = "EMAIL"
+		title = "Transaction Failed"
+		message = fmt.Sprintf("Your BI-FAST transfer of %s %s has failed: %s",
+			txn.Currency, txn.Amount, txn.ResponseMsg)
+	default:
+		notifType = "EMAIL"
+		title = "Transaction Initiated"
+		message = fmt.Sprintf("Your BI-FAST transfer of %s %s has been initiated",
+			txn.Currency, txn.Amount)
 	}
 
-	// Build notification payload
-	payload := NotificationRequest{
-		Type:    notifType,
-		Channel: []string{"push", "email"},
-		Recipient: NotificationRecipient{
-			AccountNo: txn.SourceAccountNumber,
-			// Email and phone would come from account service in production
-		},
-		Data: map[string]interface{}{
-			"transactionId":       txn.TransactionID,
-			"referenceId":         txn.ReferenceID,
-			"sourceBankCode":      txn.SourceBankCode,
-			"sourceAccountNumber": txn.SourceAccountNumber,
-			"destBankCode":        txn.DestBankCode,
-			"destAccountNumber":   txn.DestAccountNumber,
-			"amount":              txn.Amount,
-			"currency":            txn.Currency,
-			"fee":                 txn.Fee,
-			"description":         txn.Description,
-			"status":              txn.Status,
-			"responseCode":        txn.ResponseCode,
-			"responseMsg":         txn.ResponseMsg,
-			"createdAt":           txn.CreatedAt.Format(time.RFC3339),
-		},
-		Template: template,
-		Priority: priority,
+	// ✅ Define channels to send to (can be multiple)
+	channels := []string{"email"}
+
+	// ✅ Send notification to each channel separately
+	for _, channel := range channels {
+		payload := NotificationRequest{
+			RecipientID: txn.SourceAccountNumber, // ✅ Use source account as recipient ID
+			Type:        notifType,
+			Title:       title,
+			Message:     message,
+			Channel:     channel, // ✅ Single string per request
+			App:         "bifast",
+			Data: map[string]interface{}{
+				"transactionId":       txn.TransactionID,
+				"referenceId":         txn.ReferenceID,
+				"sourceBankCode":      txn.SourceBankCode,
+				"sourceAccountNumber": txn.SourceAccountNumber,
+				"destBankCode":        txn.DestBankCode,
+				"destAccountNumber":   txn.DestAccountNumber,
+				"amount":              txn.Amount,
+				"currency":            txn.Currency,
+				"fee":                 txn.Fee,
+				"description":         txn.Description,
+				"status":              txn.Status,
+				"responseCode":        txn.ResponseCode,
+				"responseMsg":         txn.ResponseMsg,
+				"createdAt":           txn.CreatedAt.Format(time.RFC3339),
+			},
+		}
+
+		if txn.CompletedAt != nil {
+			payload.Data["completedAt"] = txn.CompletedAt.Format(time.RFC3339)
+		}
+
+		// ✅ Send notification for this channel
+		if err := c.send(ctx, payload, channel); err != nil {
+			// Log error but continue with other channels
+			c.logger.WarnContext("Failed to send notification", map[string]interface{}{
+				"error":         err.Error(),
+				"channel":       channel,
+				"transactionId": txn.TransactionID,
+			})
+		}
 	}
 
-	if txn.CompletedAt != nil {
-		payload.Data["completedAt"] = txn.CompletedAt.Format(time.RFC3339)
-	}
-
-	return c.send(ctx, payload)
+	return nil
 }
 
 // SendAccountInquiryNotification sends account inquiry notification (optional)
-func (c *NotificationClient) SendAccountInquiryNotification(ctx context.Context, data map[string]interface{}) error {
+func (c *NotificationClient) SendAccountInquiryNotification(ctx context.Context, accountNo string, data map[string]interface{}) error {
 	if !c.enabled {
 		return nil
 	}
 
 	payload := NotificationRequest{
-		Type:     "account.inquiry",
-		Channel:  []string{"webhook"},
-		Data:     data,
-		Priority: "low",
+		RecipientID: accountNo,
+		Type:        "EMAIL",
+		Title:       "Account Inquiry",
+		Message:     "Account inquiry has been performed",
+		Channel:     "email", // ✅ Single channel
+		App:         "bifast",
+		Data:        data,
 	}
 
-	return c.send(ctx, payload)
+	return c.send(ctx, payload, "email")
 }
 
 // send makes HTTP request to notification service
-func (c *NotificationClient) send(ctx context.Context, payload NotificationRequest) error {
+func (c *NotificationClient) send(ctx context.Context, payload NotificationRequest, channel string) error {
 	// Marshal payload
 	body, err := json.Marshal(payload)
 	if err != nil {
 		c.logger.ErrorContext("Failed to marshal notification payload", err, map[string]interface{}{
-			"type": payload.Type,
+			"type":    payload.Type,
+			"channel": channel,
 		})
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
+
+	// ✅ Log the payload for debugging
+	c.logger.DebugContext("Sending notification payload", map[string]interface{}{
+		"payload": string(body),
+		"channel": channel,
+	})
 
 	// Create request
 	url := fmt.Sprintf("%s/api/v1/notifications", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		c.logger.ErrorContext("Failed to create notification request", err, map[string]interface{}{
-			"url":  url,
-			"type": payload.Type,
+			"url":     url,
+			"type":    payload.Type,
+			"channel": channel,
 		})
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -200,8 +222,9 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.logger.ErrorContext("Failed to send notification", err, map[string]interface{}{
-			"url":  url,
-			"type": payload.Type,
+			"url":     url,
+			"type":    payload.Type,
+			"channel": channel,
 		})
 		return fmt.Errorf("failed to send notification: %w", err)
 	}
@@ -216,6 +239,7 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 			"error":      err.Error(),
 			"statusCode": resp.StatusCode,
 			"type":       payload.Type,
+			"channel":    channel,
 		})
 		// Don't return error, just log
 	}
@@ -225,6 +249,7 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 		c.logger.ErrorContext("Notification service returned error", nil, map[string]interface{}{
 			"statusCode": resp.StatusCode,
 			"type":       payload.Type,
+			"channel":    channel,
 			"message":    notifResp.Message,
 		})
 		return fmt.Errorf("notification failed with status %d: %s", resp.StatusCode, notifResp.Message)
@@ -232,6 +257,7 @@ func (c *NotificationClient) send(ctx context.Context, payload NotificationReque
 
 	c.logger.InfoContext("Notification sent successfully", map[string]interface{}{
 		"type":           payload.Type,
+		"channel":        channel,
 		"notificationId": notifResp.NotificationID,
 		"duration":       duration.String(),
 		"statusCode":     resp.StatusCode,

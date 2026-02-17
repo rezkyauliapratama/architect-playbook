@@ -24,27 +24,29 @@ import (
 )
 
 func main() {
-	// ✅ FIX: Load configuration with error handling
+	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Printf("❌ Failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ✅ Initialize logger using libs/logger
+	// Initialize logger (JSON format, simple, production-ready)
 	logger.Initialize(logger.Config{
 		LogLevel:     cfg.LogLevel,
 		IsProduction: cfg.Environment == "production",
 		ServiceName:  "mock-bifast-service",
 		Version:      cfg.Version,
+		EnableCaller: true, // Add file:line for debugging
 	})
 	log := logger.Get()
 
-	// ✅ Use InfoContext for structured startup logs
+	// Startup log
 	log.InfoContext("Starting Mock BI-FAST Service", map[string]interface{}{
 		"environment": cfg.Environment,
 		"version":     cfg.Version,
 		"port":        cfg.Server.Port,
+		"log_format":  "json",
 	})
 
 	// Connect to database
@@ -58,7 +60,7 @@ func main() {
 	txnRepo := repository.NewTransactionRepository(db, log)
 	accRepo := repository.NewAccountRepository(db, log)
 
-	// ✅ FIX: Use ServiceURL instead of BaseURL
+	// Initialize notification client
 	notificationClient := client.NewNotificationClient(client.NotificationClientConfig{
 		BaseURL: cfg.Notification.ServiceURL,
 		APIKey:  cfg.Notification.APIKey,
@@ -85,7 +87,7 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	})
 
-	// ✅ Setup middleware using libs/middleware
+	// Setup middleware
 	app.Use(recover.New())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.LoggingMiddleware())
@@ -102,12 +104,6 @@ func main() {
 			"status":  "healthy",
 			"service": "mock-bifast-service",
 			"version": cfg.Version,
-			"config": fiber.Map{
-				"fee":         cfg.BiFast.Fee,
-				"maxAmount":   cfg.BiFast.MaxAmount,
-				"minAmount":   cfg.BiFast.MinAmount,
-				"successRate": cfg.BiFast.SuccessRate,
-			},
 		})
 	})
 
@@ -120,7 +116,7 @@ func main() {
 	bifast.Post("/transfer", bifastHandler.BiFastTransfer)
 	bifast.Get("/transactions/:transactionId", bifastHandler.TransactionStatus)
 
-	// Admin endpoints (protected)
+	// Admin endpoints
 	admin := api.Group("/admin", localMiddleware.AdminAuth(cfg.AdminToken))
 	admin.Get("/transactions", bifastHandler.ListTransactions)
 	admin.Get("/statistics", bifastHandler.GetStatistics)
@@ -131,7 +127,6 @@ func main() {
 	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.InfoContext("Server starting", map[string]interface{}{
 		"address": serverAddr,
-		"fee":     cfg.BiFast.Fee,
 	})
 
 	// Start server in goroutine
@@ -155,10 +150,15 @@ func main() {
 		log.Error("Server forced to shutdown", err)
 	}
 
+	// 🚀 FUTURE: Uncomment when async logger is implemented
+	// if err := logger.Close(); err != nil {
+	//     log.Error("Failed to close logger", err)
+	// }
+
 	log.Info("Server stopped")
 }
 
-// createErrorHandler creates custom error handler using libs/middleware
+// createErrorHandler creates custom error handler
 func createErrorHandler(log *logger.Logger) fiber.ErrorHandler {
 	loggerAdapter := &loggerMiddlewareAdapter{log: log}
 
@@ -178,7 +178,7 @@ func createErrorHandler(log *logger.Logger) fiber.ErrorHandler {
 	})
 }
 
-// loggerMiddlewareAdapter adapts libs/logger to middleware.Logger interface
+// loggerMiddlewareAdapter adapts logger to middleware.Logger interface
 type loggerMiddlewareAdapter struct {
 	log *logger.Logger
 }
@@ -195,7 +195,7 @@ func (l *loggerMiddlewareAdapter) Error(msg string, err error, context map[strin
 	l.log.ErrorContext(msg, err, context)
 }
 
-// mapToServiceError maps HTTP status codes to service error codes
+// mapToServiceError maps HTTP codes to service errors
 func mapToServiceError(code int) (string, string) {
 	switch code {
 	case fiber.StatusBadRequest:
